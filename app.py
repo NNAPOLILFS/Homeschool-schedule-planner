@@ -1,106 +1,155 @@
 import streamlit as st
 import pandas as pd
+from datetime import datetime, timedelta
 
-st.set_page_config(page_title="Homeschool Timetable Builder", layout="wide")
-st.title("🏡 Homeschool Timetable Builder")
-st.markdown("""
-Flexible homeschool timetable with fixed commitments, 15-minute blocks, weekend support, auto-filled lessons, and color-coded subjects.
-""")
+st.title("Homeschool Planner")
 
-# --- Sidebar: Configuration ---
-st.sidebar.header("Configuration")
-num_children = st.sidebar.number_input("Number of children", min_value=1, max_value=8, value=3)
-time_start = st.sidebar.time_input("Start time", value=pd.Timestamp("08:00").time())
-time_end = st.sidebar.time_input("End time", value=pd.Timestamp("15:00").time())
-days = ["Monday", "Tuesday", "Wednesday", "Thursday", "Friday", "Saturday", "Sunday"]
+# --- Step 1: Basic Inputs ---
+kids_input = st.text_input("Enter children’s names separated by commas", "Alice,Bob")
+kids = [k.strip() for k in kids_input.split(",")]
 
-time_slots = pd.date_range(start=str(time_start), end=str(time_end), freq="15min").strftime("%H:%M").tolist()
+start_time_input = st.time_input("Day start time", value=datetime.strptime("07:00", "%H:%M").time())
+start_time = timedelta(hours=start_time_input.hour, minutes=start_time_input.minute)
 
-# --- Sidebar: Subjects & Preferences ---
-st.sidebar.subheader("Subjects & Preferences")
-subjects = {}
-colors = {}  # Assign colors for each subject
-default_colors = ["#FFCDD2","#C8E6C9","#BBDEFB","#FFF9C4","#D1C4E9"]
-for i in range(5):
-    subj = st.sidebar.text_input(f"Subject {i+1}", value=f"Subject {i+1}")
-    pref = st.sidebar.selectbox(f"{subj} preference", ["Any", "Morning", "Afternoon"], key=f"pref_{i}")
-    subjects[subj] = pref
-    colors[subj] = default_colors[i % len(default_colors)]
+include_saturday = st.checkbox("Include Saturday?", value=True)
+include_sunday = st.checkbox("Include Sunday?", value=False)
 
-# --- Sidebar: Fixed Commitments ---
-st.sidebar.subheader("Fixed Commitments")
-commitments = {}
-for i in range(5):
-    name = st.sidebar.text_input(f"Commitment {i+1} name", key=f"cname_{i}")
-    day = st.sidebar.selectbox(f"Day", days, key=f"cday_{i}")
-    time = st.sidebar.time_input(f"Time", value=pd.Timestamp("09:00").time(), key=f"ctime_{i}")
-    if name:
-        commitments[(day, time.strftime("%H:%M"))] = name
+days_of_week = ["Monday", "Tuesday", "Wednesday", "Thursday", "Friday"]
+if include_saturday:
+    days_of_week.append("Saturday")
+if include_sunday:
+    days_of_week.append("Sunday")
 
-# --- Build empty timetable ---
-def create_empty_timetable():
-    data = []
-    for day in days:
-        for time in time_slots:
-            row = {"Day": day, "Time": time}
-            for child_idx in range(1, num_children + 1):
-                row[f"Child {child_idx}"] = ""
-            data.append(row)
-    return pd.DataFrame(data)
+time_increment = st.selectbox("Choose schedule increment (minutes)", [15, 30, 60], index=0)
 
-timetable = create_empty_timetable()
+# --- Step 2: Dynamic Subjects & Fixed Commitments ---
+if 'subjects' not in st.session_state:
+    st.session_state.subjects = []
 
-# --- Fill in fixed commitments ---
-for (day, time), name in commitments.items():
-    for child_idx in range(1, num_children + 1):
-        idx = timetable[(timetable["Day"] == day) & (timetable["Time"] == time)].index
-        timetable.at[idx, f"Child {child_idx}"] = name
+st.subheader("Subjects")
+if st.button("Add Subject"):
+    st.session_state.subjects.append({
+        "name": "",
+        "sessions": 1,
+        "length": 45,
+        "shared": False
+    })
 
-# --- Auto-populate lessons ---
-st.sidebar.subheader("Auto-populate Lessons")
-if st.sidebar.button("Auto-Populate"):
-    for child_idx in range(1, num_children + 1):
-        lesson_pool = []
-        for subj, pref in subjects.items():
-            lesson_pool.extend([{"subject": subj, "pref": pref}] * len(days))
-        pool_idx = 0
-        for day in days:
-            day_slots = timetable[timetable["Day"] == day].index.tolist()
-            for idx in day_slots:
-                if timetable.at[idx, f"Child {child_idx}"] == "":
-                    subj_info = lesson_pool[pool_idx % len(lesson_pool)]
-                    hour = int(timetable.at[idx, "Time"].split(":")[0])
-                    if (subj_info["pref"] == "Any" or
-                        (subj_info["pref"] == "Morning" and hour < 12) or
-                        (subj_info["pref"] == "Afternoon" and hour >= 12)):
-                        timetable.at[idx, f"Child {child_idx}"] = subj_info["subject"]
-                        pool_idx += 1
+for i, subj in enumerate(st.session_state.subjects):
+    st.text_input(f"Subject {i+1} Name", value=subj["name"], key=f"name_{i}", on_change=lambda i=i: st.session_state.subjects.__setitem__(i, {**st.session_state.subjects[i], "name": st.session_state[f"name_{i}"]}))
+    st.number_input(f"Sessions per week for {subj['name']}", min_value=1, key=f"sessions_{i}", value=subj["sessions"], on_change=lambda i=i: st.session_state.subjects.__setitem__(i, {**st.session_state.subjects[i], "sessions": st.session_state[f"sessions_{i}"]}))
+    st.number_input(f"Length of each session (minutes) for {subj['name']}", min_value=time_increment, step=time_increment, key=f"length_{i}", value=subj["length"], on_change=lambda i=i: st.session_state.subjects.__setitem__(i, {**st.session_state.subjects[i], "length": st.session_state[f"length_{i}"]}))
+    st.checkbox(f"Shared across all kids?", value=subj["shared"], key=f"shared_{i}", on_change=lambda i=i: st.session_state.subjects.__setitem__(i, {**st.session_state.subjects[i], "shared": st.session_state[f"shared_{i}"]}))
 
-# --- Display timetable with color coding ---
-st.subheader("🗓️ Timetable")
+if 'fixed' not in st.session_state:
+    st.session_state.fixed = []
 
-for day in days:
-    st.markdown(f"### {day}")
-    df_day = timetable[timetable["Day"] == day].drop(columns=["Day"]).set_index("Time")
-    
-    # Apply colors
-    def colorize(val):
-        return f'background-color: {colors.get(val,"")}' if val in colors else ''
-    
-    # Highlight weekends
-    if day in ["Saturday", "Sunday"]:
-        df_day_styled = df_day.style.applymap(lambda _: 'background-color: #ECEFF1')
-        df_day_styled = df_day_styled.applymap(colorize)
-    else:
-        df_day_styled = df_day.style.applymap(colorize)
-    
-    st.dataframe(df_day_styled, use_container_width=True)
+st.subheader("Fixed Commitments")
+if st.button("Add Fixed Commitment"):
+    st.session_state.fixed.append({
+        "name": "",
+        "day": days_of_week[0],
+        "start": start_time,
+        "length": 30
+    })
 
-# --- Download CSV ---
-csv = timetable.to_csv(index=False).encode("utf-8")
-st.download_button(
-    label="💾 Download Timetable as CSV",
-    data=csv,
-    file_name="homeschool_timetable.csv",
-    mime="text/csv",
-)
+for i, fc in enumerate(st.session_state.fixed):
+    st.text_input(f"Fixed Commitment {i+1} Name", value=fc["name"], key=f"fc_name_{i}", on_change=lambda i=i: st.session_state.fixed.__setitem__(i, {**st.session_state.fixed[i], "name": st.session_state[f"fc_name_{i}"]}))
+    st.selectbox(f"Day for {fc['name']}", days_of_week, index=0, key=f"fc_day_{i}", on_change=lambda i=i: st.session_state.fixed.__setitem__(i, {**st.session_state.fixed[i], "day": st.session_state[f"fc_day_{i}"]}))
+    st.time_input(f"Start time for {fc['name']}", value=datetime.strptime("07:00", "%H:%M").time(), key=f"fc_start_{i}", on_change=lambda i=i: st.session_state.fixed.__setitem__(i, {**st.session_state.fixed[i], "start": timedelta(hours=st.session_state[f"fc_start_{i}"].hour, minutes=st.session_state[f"fc_start_{i}"].minute)}))
+    st.number_input(f"Length (minutes) for {fc['name']}", min_value=time_increment, step=time_increment, key=f"fc_length_{i}", value=fc["length"], on_change=lambda i=i: st.session_state.fixed.__setitem__(i, {**st.session_state.fixed[i], "length": st.session_state[f"fc_length_{i}"]}))
+
+# --- Step 3: Helper function to find free slots ---
+def find_free_slot(existing_blocks, length, start_day_time, increment):
+    # Sort existing blocks
+    existing_blocks = sorted(existing_blocks, key=lambda x: x[0])
+    current = start_day_time
+    for block in existing_blocks:
+        if block[0] - current >= timedelta(minutes=length):
+            return current
+        current = max(current, block[1])
+    return current  # returns end of last block if still enough time
+
+# --- Step 4: Scheduling ---
+if st.button("Generate Schedule"):
+    schedule = {day: {kid: [] for kid in kids} for day in days_of_week}
+    unscheduled_subjects = []
+
+    # Place fixed commitments first
+    for fc in st.session_state.fixed:
+        day = fc["day"]
+        start = fc["start"]
+        end = start + timedelta(minutes=fc["length"])
+        for kid in kids:
+            schedule[day][kid].append((start, end, fc["name"]))
+
+    # Schedule subjects
+    for subj in st.session_state.subjects:
+        name = subj["name"]
+        length = subj["length"]
+        sessions_needed = subj["sessions"]
+        shared = subj["shared"]
+
+        for s in range(sessions_needed):
+            placed = False
+            for day in days_of_week:
+                if shared:
+                    # find a slot common to all kids
+                    max_start = start_time
+                    # Find earliest common free slot
+                    while max_start + timedelta(minutes=length) <= timedelta(hours=19):  # arbitrary 19h limit
+                        conflict = False
+                        for kid in kids:
+                            for b in schedule[day][kid]:
+                                if not (max_start + timedelta(minutes=length) <= b[0] or max_start >= b[1]):
+                                    conflict = True
+                                    break
+                            if conflict:
+                                break
+                        if not conflict:
+                            # assign slot to all kids
+                            for kid in kids:
+                                schedule[day][kid].append((max_start, max_start + timedelta(minutes=length), name))
+                            placed = True
+                            break
+                        max_start += timedelta(minutes=time_increment)
+                else:
+                    # individual placement per kid
+                    for kid in kids:
+                        max_start = start_time
+                        while max_start + timedelta(minutes=length) <= timedelta(hours=19):
+                            conflict = False
+                            for b in schedule[day][kid]:
+                                if not (max_start + timedelta(minutes=length) <= b[0] or max_start >= b[1]):
+                                    conflict = True
+                                    break
+                            if not conflict:
+                                schedule[day][kid].append((max_start, max_start + timedelta(minutes=length), name))
+                                placed = True
+                                break
+                            max_start += timedelta(minutes=time_increment)
+                if placed:
+                    break
+            if not placed:
+                unscheduled_subjects.append(name)
+
+    # --- Step 5: Display Schedule ---
+    st.subheader("Generated Schedule")
+    for day in days_of_week:
+        st.write(f"### {day}")
+        for kid in kids:
+            st.write(f"**{kid}**")
+            kid_schedule = sorted(schedule[day][kid], key=lambda x: x[0])
+            if kid_schedule:
+                df = pd.DataFrame([{
+                    "Start": str(block[0]),
+                    "End": str(block[1]),
+                    "Subject": block[2]
+                } for block in kid_schedule])
+                st.table(df)
+            else:
+                st.write("No sessions scheduled.")
+
+    if unscheduled_subjects:
+        st.warning("⚠️ Could not fit the following subjects into the schedule due to time constraints: " +
+                   ", ".join(set(unscheduled_subjects)))
