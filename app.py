@@ -1,245 +1,173 @@
 import streamlit as st
 import pandas as pd
-from datetime import datetime, timedelta
 import plotly.express as px
+from datetime import datetime, timedelta
+import random
 
-st.set_page_config(layout="wide", page_title="Homeschool Planner")
+st.set_page_config(page_title="Homeschool Planner", layout="wide")
 
-# -------------------------
-# --- Sidebar Settings ---
-# -------------------------
-st.sidebar.title("Planner Settings")
+st.title("🎨 Homeschool Planner (Daily View)")
 
-# Children
-kids_input = st.sidebar.text_input("Enter children’s names (comma-separated)", "Winter, Micah")
-kids = [k.strip() for k in kids_input.split(",") if k.strip()]
+# ------------------------
+# Sidebar Inputs
+# ------------------------
+st.sidebar.header("Settings")
 
-# Include/exclude weekend
-include_saturday = st.sidebar.checkbox("Include Saturday?", value=True)
-include_sunday = st.sidebar.checkbox("Include Sunday?", value=False)
-days_of_week = ["Monday", "Tuesday", "Wednesday", "Thursday", "Friday"]
-if include_saturday: days_of_week.append("Saturday")
-if include_sunday: days_of_week.append("Sunday")
+children = [c.strip() for c in st.sidebar.text_input("Enter children's names (comma separated):", "Winter, Micah").split(",")]
+day_start = st.sidebar.time_input("School start time", datetime.strptime("08:00", "%H:%M").time())
+day_end = st.sidebar.time_input("School end time", datetime.strptime("15:00", "%H:%M").time())
+time_increment = st.sidebar.number_input("Time increment (minutes)", min_value=15, max_value=120, step=15, value=30)
 
-# Time increment
-time_increment = st.sidebar.selectbox("Schedule increment (minutes)", [15, 30, 60], index=0)
+# Pastel colour palette
+pastel_palette = [
+    "#F9D5E5", "#FCE2CE", "#D5E1DF", "#E2F0CB", "#C5D5E4",
+    "#F7D8BA", "#EAD5E6", "#D0E6A5", "#FFB7B2", "#B5EAD7"
+]
+random.shuffle(pastel_palette)
 
-# Day start/end times
-st.sidebar.subheader("School Hours")
-default_start = datetime.strptime("07:00", "%H:%M").time()
-default_end = datetime.strptime("16:00", "%H:%M").time()
-start_time_input = st.sidebar.time_input("Day start time", value=default_start)
-end_time_input = st.sidebar.time_input("Day end time", value=default_end)
-try:
-    start_time = timedelta(hours=start_time_input.hour, minutes=start_time_input.minute)
-    end_time = timedelta(hours=end_time_input.hour, minutes=end_time_input.minute)
-except:
-    start_time = timedelta(hours=7)
-    end_time = timedelta(hours=16)
+subject_emojis = ["📚", "🔢", "🌏", "🎨", "🧪"]
 
-# Theme selection
-theme = st.sidebar.selectbox("Choose theme", ["Pastel", "Dark", "Bright"])
+# ------------------------
+# Subject Inputs (5 fixed slots)
+# ------------------------
+st.header("Subjects")
+subjects = []
+for i in range(5):
+    with st.expander(f"Subject {i+1}"):
+        name = st.text_input(f"Name for Subject {i+1}", key=f"name_{i}")
+        sessions = st.number_input(f"Sessions per week for {name or 'Subject '+str(i+1)}", min_value=0, max_value=10, value=0, step=1, key=f"sessions_{i}")
+        length = st.number_input(f"Session length (minutes)", min_value=time_increment, step=time_increment, value=time_increment*2, key=f"length_{i}")
+        shared = st.checkbox("Shared subject across all kids", key=f"shared_{i}")
+        if name:
+            subjects.append({
+                "name": name,
+                "sessions": sessions,
+                "length": length,
+                "shared": shared,
+                "emoji": subject_emojis[i % len(subject_emojis)],
+                "color": pastel_palette[i % len(pastel_palette)]
+            })
 
-# -------------------------
-# --- Session State Initialization ---
-# -------------------------
-if "subjects" not in st.session_state:
-    st.session_state.subjects = {kid: [] for kid in kids}
-if "fixed" not in st.session_state:
-    st.session_state.fixed = {kid: [] for kid in kids}
+# ------------------------
+# Fixed Commitments
+# ------------------------
+st.header("Fixed Commitments")
+commitments = {kid: [] for kid in children}
+for kid in children:
+    st.subheader(f"{kid}'s Commitments")
+    for j in range(2):  # Two placeholders per child
+        name = st.text_input(f"Commitment {j+1} for {kid}", key=f"commit_name_{kid}_{j}")
+        start = st.time_input(f"Start time for {name or f'Commitment {j+1}'} ({kid})", key=f"commit_start_{kid}_{j}", value=day_start)
+        end = st.time_input(f"End time for {name or f'Commitment {j+1}'} ({kid})", key=f"commit_end_{kid}_{j}", value=day_start)
+        if name and start < end:
+            commitments[kid].append({
+                "name": name,
+                "start": timedelta(hours=start.hour, minutes=start.minute),
+                "end": timedelta(hours=end.hour, minutes=end.minute)
+            })
 
-# -------------------------
-# --- Dynamic Inputs per Child ---
-# -------------------------
-st.subheader("Subjects & Fixed Commitments per Child")
+# ------------------------
+# Autofill Button
+# ------------------------
+if st.button("✨ Autofill Schedule"):
+    st.subheader("📅 Daily Schedule")
+    start_delta = timedelta(hours=day_start.hour, minutes=day_start.minute)
+    end_delta = timedelta(hours=day_end.hour, minutes=day_end.minute)
 
-for kid in kids:
-    st.markdown(f"### {kid}'s Subjects")
-    if kid not in st.session_state.subjects:
-        st.session_state.subjects[kid] = []
-    for i, subj in enumerate(st.session_state.subjects[kid]):
-        col1, col2, col3, col4, col5 = st.columns([2,1,1,1,1])
-        with col1:
-            subj["name"] = st.text_input(f"Name ({kid})", value=subj.get("name",""), key=f"name_{kid}_{i}")
-        with col2:
-            subj["sessions"] = st.number_input(f"Sessions/week ({kid})", min_value=1, value=subj.get("sessions",1), key=f"sessions_{kid}_{i}")
-        with col3:
-            subj["length"] = st.number_input(f"Length (min) ({kid})", min_value=time_increment, step=time_increment, value=subj.get("length",45), key=f"length_{kid}_{i}")
-        with col4:
-            subj["shared"] = st.checkbox("Shared?", value=subj.get("shared", False), key=f"shared_{kid}_{i}")
-        with col5:
-            subj["icon"] = st.text_input("Emoji", value=subj.get("icon","📚"), max_chars=2, key=f"icon_{kid}_{i}")
-    if st.button(f"Add Subject for {kid}"):
-        st.session_state.subjects[kid].append({"name":"","sessions":1,"length":45,"shared":False,"icon":"📚"})
+    # Time slots
+    day_slots = []
+    cur = start_delta
+    while cur + timedelta(minutes=time_increment) <= end_delta:
+        day_slots.append((cur, cur + timedelta(minutes=time_increment)))
+        cur += timedelta(minutes=time_increment)
 
-    st.markdown(f"### {kid}'s Fixed Commitments")
-    if kid not in st.session_state.fixed:
-        st.session_state.fixed[kid] = []
-    for i, fc in enumerate(st.session_state.fixed[kid]):
-        col1, col2, col3, col4 = st.columns([2,2,1,1])
-        with col1:
-            fc["name"] = st.text_input(f"Commitment Name ({kid})", value=fc.get("name",""), key=f"fc_name_{kid}_{i}")
-        with col2:
-            fc["day"] = st.selectbox(f"Day ({kid})", days_of_week, index=days_of_week.index(fc.get("day",days_of_week[0])), key=f"fc_day_{kid}_{i}")
-        with col3:
-            fc_start = fc.get("start", start_time)
-            fc_start_input = st.time_input(f"Start ({kid})", value=(datetime.min + fc_start).time(), key=f"fc_start_{kid}_{i}")
-            fc["start"] = timedelta(hours=fc_start_input.hour, minutes=fc_start_input.minute)
-        with col4:
-            fc["length"] = st.number_input(f"Length (min) ({kid})", min_value=time_increment, step=time_increment, value=fc.get("length", time_increment), key=f"fc_length_{kid}_{i}")
-    if st.button(f"Add Fixed Commitment for {kid}"):
-        st.session_state.fixed[kid].append({"name":"","day":days_of_week[0],"start":start_time,"length":time_increment})
+    # Build schedules
+    schedule = {kid: [] for kid in children}
+    unscheduled = []
 
-# -------------------------
-# --- Scheduling Function ---
-# -------------------------
-def schedule_planner(subjects, fixed, kids, days_of_week, start_time, end_time, time_increment):
-    schedule = {day: {kid: [] for kid in kids} for day in days_of_week}
-    unscheduled_subjects = []
+    for subj in subjects:
+        if subj["sessions"] == 0:
+            continue
 
-    # Fixed commitments
-    for kid in kids:
-        for fc in fixed[kid]:
-            day = fc["day"]
-            start = fc["start"]
-            end_fc = start + timedelta(minutes=fc["length"])
-            schedule[day][kid].append((start, end_fc, fc["name"], "fixed", "⏰"))
+        subj_len = timedelta(minutes=subj["length"])
+        needed_slots = int(subj_len / timedelta(minutes=time_increment))
 
-    # Helper: free slots
-    def get_free_slots(blocks, start_time, end_time, length, increment):
-        slots = []
-        current = start_time
-        while current + timedelta(minutes=length) <= end_time:
-            conflict = any(not (current + timedelta(minutes=length) <= b[0] or current >= b[1]) for b in blocks)
-            if not conflict:
-                slots.append(current)
-            current += timedelta(minutes=increment)
-        return slots
-
-    # Subjects
-    for kid in kids:
-        for subj in subjects[kid]:
-            name = subj["name"]
-            length = subj["length"]
-            sessions_needed = subj["sessions"]
-            shared = subj["shared"]
-            icon = subj["icon"]
-
-            if shared:
-                placed_count = 0
-                for day in days_of_week:
-                    free_per_kid = [set(get_free_slots(schedule[day][k], start_time, end_time, length, time_increment)) for k in kids]
-                    common_slots = sorted(list(set.intersection(*free_per_kid)))
-                    while common_slots and placed_count < sessions_needed:
-                        slot = common_slots.pop(0)
-                        for k in kids:
-                            schedule[day][k].append((slot, slot + timedelta(minutes=length), name, "shared", icon))
-                        placed_count += 1
-                    if placed_count >= sessions_needed:
-                        break
-                if placed_count < sessions_needed:
-                    unscheduled_subjects.append(f"{name} (shared)")
-            else:
-                placed_count = 0
-                for day in days_of_week:
-                    free_slots = get_free_slots(schedule[day][kid], start_time, end_time, length, time_increment)
-                    while free_slots and placed_count < sessions_needed:
-                        slot = free_slots.pop(0)
-                        schedule[day][kid].append((slot, slot + timedelta(minutes=length), name, "individual", icon))
-                        placed_count += 1
-                    if placed_count >= sessions_needed:
-                        break
-                if placed_count < sessions_needed:
-                    unscheduled_subjects.append(f"{name} ({kid})")
-
-    # Sort each day's schedule
-    for day in days_of_week:
-        for kid in kids:
-            schedule[day][kid].sort(key=lambda x: x[0])
-    return schedule, unscheduled_subjects
-
-# -------------------------
-# --- Autofill Button ---
-# -------------------------
-if st.button("Autofill Schedule"):
-    try:
-        schedule, unscheduled_subjects = schedule_planner(
-            st.session_state.subjects,
-            st.session_state.fixed,
-            kids,
-            days_of_week,
-            start_time,
-            end_time,
-            time_increment
-        )
-    except Exception as e:
-        st.error(f"Error generating schedule: {e}")
-        st.stop()
-
-    # -------------------------
-    # --- Plot Daily Schedule ---
-    # -------------------------
-    st.subheader("Daily Schedules")
-
-    day_ref = datetime(2000, 1, 1)
-    palettes = {
-        "Pastel": px.colors.qualitative.Pastel,
-        "Dark": px.colors.qualitative.Dark24,
-        "Bright": px.colors.qualitative.Set1
-    }
-    colors = palettes.get(theme, px.colors.qualitative.Pastel)
-    color_map = {}
-    color_idx = 0
-
-    for day in days_of_week:
-        st.markdown(f"## {day}")
-        df_plot = []
-        for kid in kids:
-            for block in schedule[day][kid]:
-                name, block_type, icon = block[2], block[3], block[4]
-                if name not in color_map:
-                    color_map[name] = colors[color_idx % len(colors)]
-                    color_idx += 1
-                df_plot.append({
-                    "Day": day,
-                    "Kid": kid,
-                    "Start": day_ref + block[0],
-                    "End": day_ref + block[1],
-                    "Subject": f"{icon} {name}",
-                    "Color": color_map[name],
-                    "Type": block_type
-                })
-        if df_plot:
-            df_plot = pd.DataFrame(df_plot)
-            fig = px.timeline(
-                df_plot, x_start="Start", x_end="End", y="Kid",
-                color="Subject",
-                color_discrete_map={row["Subject"]: row["Color"] for idx,row in df_plot.iterrows()},
-            )
-            fig.update_yaxes(autorange="reversed")
-            fig.update_xaxes(title="Time of Day", tickformat="%H:%M")
-            st.plotly_chart(fig, use_container_width=True)
+        if subj["shared"]:
+            placed_sessions = 0
+            for start, end in day_slots:
+                block = (start, start + subj_len)
+                if all(
+                    all(not (block[0] < c["end"] and block[1] > c["start"]) for c in commitments[k])
+                    and all(not (block[0] < s[1] and block[1] > s[0]) for s in schedule[k])
+                    for k in children
+                ):
+                    for k in children:
+                        schedule[k].append((block[0], block[1], subj["emoji"] + " " + subj["name"], subj["color"]))
+                    placed_sessions += 1
+                if placed_sessions >= subj["sessions"]:
+                    break
+            if placed_sessions < subj["sessions"]:
+                unscheduled.append(subj["name"])
         else:
-            st.info("No sessions scheduled for this day.")
+            for kid in children:
+                placed_sessions = 0
+                for start, end in day_slots:
+                    block = (start, start + subj_len)
+                    if all(not (block[0] < c["end"] and block[1] > c["start"]) for c in commitments[kid]) and \
+                       all(not (block[0] < s[1] and block[1] > s[0]) for s in schedule[kid]):
+                        schedule[kid].append((block[0], block[1], subj["emoji"] + " " + subj["name"], subj["color"]))
+                        placed_sessions += 1
+                    if placed_sessions >= subj["sessions"]:
+                        break
+                if placed_sessions < subj["sessions"]:
+                    unscheduled.append(f"{subj['name']} ({kid})")
 
-    # -------------------------
-    # --- Weekly Summary ---
-    # -------------------------
-    st.subheader("Weekly Summary")
-    summary_rows = []
-    for kid in kids:
-        total_minutes = 0
-        for day in days_of_week:
-            for block in schedule[day][kid]:
-                if block[3] != "fixed":
-                    total_minutes += (block[1]-block[0]).total_seconds()/60
-        summary_rows.append({"Kid": kid, "Total Hours": round(total_minutes/60,2)})
-    st.table(pd.DataFrame(summary_rows))
+    # Plot all kids together
+    df_plot = []
+    base_date = datetime(2000, 1, 1)
+    for kid in children:
+        for s in schedule[kid]:
+            df_plot.append({
+                "Kid": kid,
+                "Start": base_date + s[0],
+                "End": base_date + s[1],
+                "Subject": s[2],
+                "Color": s[3]
+            })
+        for c in commitments[kid]:
+            df_plot.append({
+                "Kid": kid,
+                "Start": base_date + c["start"],
+                "End": base_date + c["end"],
+                "Subject": "🕒 " + c["name"],
+                "Color": "#CCCCCC"
+            })
 
-    # -------------------------
-    # --- Unscheduled Subjects ---
-    # -------------------------
-    if unscheduled_subjects:
-        st.warning("Some subjects could not be scheduled due to time conflicts:")
-        for s in unscheduled_subjects:
-            st.write(f"- {s}")
+    if df_plot:
+        df = pd.DataFrame(df_plot)
+        fig = px.timeline(df, x_start="Start", x_end="End", y="Kid", color="Subject", color_discrete_map={r["Subject"]: r["Color"] for _, r in df.iterrows()})
+        fig.update_yaxes(autorange="reversed")
+        fig.update_layout(
+            title="Daily Schedule (Pastel View)",
+            xaxis_title="Time of Day",
+            yaxis_title="Children",
+            bargap=0.2,
+            showlegend=True,
+            template="simple_white"
+        )
+        st.plotly_chart(fig, use_container_width=True)
+    else:
+        st.info("No schedule data yet. Please fill in subjects and commitments.")
+
+    # Summary
+    st.subheader("📊 Summary")
+    rows = []
+    for kid in children:
+        total_mins = sum((s[1]-s[0]).total_seconds()/60 for s in schedule[kid])
+        rows.append({"Child": kid, "Total Hours": round(total_mins/60, 2)})
+    st.table(pd.DataFrame(rows))
+
+    if unscheduled:
+        st.warning("Some subjects couldn’t be scheduled:")
+        for u in unscheduled:
+            st.write(f"- {u}")
