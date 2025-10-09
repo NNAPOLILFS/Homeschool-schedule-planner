@@ -2,7 +2,6 @@ import streamlit as st
 import pandas as pd
 from datetime import datetime, timedelta
 import plotly.express as px
-import io
 
 st.set_page_config(layout="wide", page_title="Homeschool Planner")
 
@@ -92,7 +91,7 @@ for kid in kids:
         st.session_state.fixed[kid].append({"name":"","day":days_of_week[0],"start":start_time,"length":time_increment})
 
 # -------------------------
-# --- Optimized Scheduling Function ---
+# --- Scheduling Function ---
 # -------------------------
 def schedule_planner(subjects, fixed, kids, days_of_week, start_time, end_time, time_increment):
     schedule = {day: {kid: [] for kid in kids} for day in days_of_week}
@@ -140,7 +139,6 @@ def schedule_planner(subjects, fixed, kids, days_of_week, start_time, end_time, 
                         break
                 if placed_count < sessions_needed:
                     unscheduled_subjects.append(f"{name} (shared)")
-
             else:
                 placed_count = 0
                 for day in days_of_week:
@@ -179,65 +177,50 @@ if st.button("Autofill Schedule"):
         st.stop()
 
     # -------------------------
-    # --- Plot Schedule ---
+    # --- Plot Daily Schedule ---
     # -------------------------
-    def plot_schedule(schedule, kids, days_of_week, theme, week_view=True):
+    st.subheader("Daily Schedules")
+
+    day_ref = datetime(2000, 1, 1)
+    palettes = {
+        "Pastel": px.colors.qualitative.Pastel,
+        "Dark": px.colors.qualitative.Dark24,
+        "Bright": px.colors.qualitative.Set1
+    }
+    colors = palettes.get(theme, px.colors.qualitative.Pastel)
+    color_map = {}
+    color_idx = 0
+
+    for day in days_of_week:
+        st.markdown(f"## {day}")
         df_plot = []
-        palettes = {
-            "Pastel": px.colors.qualitative.Pastel,
-            "Dark": px.colors.qualitative.Dark24,
-            "Bright": px.colors.qualitative.Set1
-        }
-        colors = palettes.get(theme, px.colors.qualitative.Pastel)
-        color_map = {}
-        color_idx = 0
-
-        for day in days_of_week:
-            for kid in kids:
-                for block in schedule[day][kid]:
-                    name, block_type, icon = block[2], block[3], block[4]
-                    if name not in color_map:
-                        color_map[name] = colors[color_idx % len(colors)]
-                        color_idx += 1
-                    df_plot.append({
-                        "Day": day,
-                        "Kid": kid,
-                        "Start": block[0].total_seconds() / 3600,
-                        "End": block[1].total_seconds() / 3600,
-                        "Subject": f"{icon} {name}",
-                        "Color": color_map[name],
-                        "Type": block_type
-                    })
-
-        if not df_plot:
-            st.write("No sessions scheduled yet.")
-            return
-
-        df_plot = pd.DataFrame(df_plot)
-        facet_col = "Day" if week_view else None
-        facet_col_wrap = 2 if week_view else None
-
-        fig = px.timeline(
-            df_plot,
-            x_start="Start",
-            x_end="End",
-            y="Kid",
-            color="Subject",
-            color_discrete_map={row["Subject"]: row["Color"] for idx, row in df_plot.iterrows()},
-            facet_col=facet_col,
-            facet_col_wrap=facet_col_wrap
-        )
-        fig.update_yaxes(autorange="reversed")
-        fig.update_xaxes(title="Hour of Day", tick0=0, dtick=1, tickformat="%I:%M %p")
-        fig.update_layout(height=400 + len(kids)*60)
-        st.plotly_chart(fig, use_container_width=True)
-
-    st.subheader("Visual Schedule")
-    week_view_toggle = st.checkbox("Week view (uncheck for single day)", value=True)
-
-    for kid in kids:
-        with st.expander(f"{kid}'s Schedule", expanded=True):
-            plot_schedule({day: {kid: schedule[day][kid] for kid in [kid]} for day in days_of_week}, [kid], days_of_week, theme, week_view_toggle)
+        for kid in kids:
+            for block in schedule[day][kid]:
+                name, block_type, icon = block[2], block[3], block[4]
+                if name not in color_map:
+                    color_map[name] = colors[color_idx % len(colors)]
+                    color_idx += 1
+                df_plot.append({
+                    "Day": day,
+                    "Kid": kid,
+                    "Start": day_ref + block[0],
+                    "End": day_ref + block[1],
+                    "Subject": f"{icon} {name}",
+                    "Color": color_map[name],
+                    "Type": block_type
+                })
+        if df_plot:
+            df_plot = pd.DataFrame(df_plot)
+            fig = px.timeline(
+                df_plot, x_start="Start", x_end="End", y="Kid",
+                color="Subject",
+                color_discrete_map={row["Subject"]: row["Color"] for idx,row in df_plot.iterrows()},
+            )
+            fig.update_yaxes(autorange="reversed")
+            fig.update_xaxes(title="Time of Day", tickformat="%H:%M")
+            st.plotly_chart(fig, use_container_width=True)
+        else:
+            st.info("No sessions scheduled for this day.")
 
     # -------------------------
     # --- Weekly Summary ---
