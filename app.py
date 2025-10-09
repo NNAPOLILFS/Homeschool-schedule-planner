@@ -3,8 +3,8 @@ import pandas as pd
 from datetime import datetime, timedelta
 import random
 
-st.set_page_config(page_title="Homeschool Planner", layout="wide")
-st.title("🎨 Homeschool Planner")
+st.set_page_config(page_title="Homeschool Planner v0.2", layout="wide")
+st.title("🎨 Homeschool Planner v0.2")
 
 # ------------------------
 # Sidebar Inputs
@@ -12,25 +12,24 @@ st.title("🎨 Homeschool Planner")
 st.sidebar.header("Settings")
 
 # Children
-children = [c.strip() for c in st.sidebar.text_input("Enter children's names (comma separated):", "Winter, Micah").split(",")]
+new_children = [c.strip() for c in st.sidebar.text_input("Enter children's names (comma separated):", "Winter, Micah").split(",")]
+
+# Reset subjects/commitments if children changed
+if "children" not in st.session_state or st.session_state["children"] != new_children:
+    st.session_state["children"] = new_children
+    st.session_state["subjects"] = {kid:[{"name":"","sessions":0,"length":60,"shared":False}] for kid in new_children}
+    st.session_state["commitments"] = {kid: [] for kid in new_children}
+
+children = st.session_state["children"]
 
 # School day
 day_start_time = st.sidebar.time_input("School day start time:", datetime.strptime("08:00", "%H:%M").time())
-time_increment = st.sidebar.selectbox("Schedule increment (minutes):", [15, 30, 60], index=0)
 day_end_time = st.sidebar.time_input("School day end time:", datetime.strptime("15:00", "%H:%M").time())
+time_increment = st.sidebar.selectbox("Schedule increment (minutes):", [15,30,60], index=2)
 
 # Pastel colors and emojis
 pastel_palette = ["#F9D5E5","#FCE2CE","#D5E1DF","#E2F0CB","#C5D5E4","#F7D8BA","#EAD5E6","#D0E6A5","#FFB7B2","#B5EAD7"]
 subject_emojis = ["📚","🔢","🌏","🎨","🧪"]
-
-# ------------------------
-# Initialize session state
-# ------------------------
-if "subjects" not in st.session_state:
-    st.session_state["subjects"] = {kid:[{"name":"","sessions":0,"length":30,"shared":False}] for kid in children}
-
-if "commitments" not in st.session_state:
-    st.session_state["commitments"] = {kid: [] for kid in children}
 
 # ------------------------
 # Subjects Input
@@ -45,13 +44,16 @@ for kid in children:
         subj["shared"] = st.sidebar.checkbox("Shared", value=subj["shared"], key=f"{kid}_shared_{i}")
     if st.sidebar.button(f"Add Subject for {kid}"):
         if len(st.session_state["subjects"][kid]) < 5:
-            st.session_state["subjects"][kid].append({"name":"","sessions":0,"length":30,"shared":False})
+            st.session_state["subjects"][kid].append({"name":"","sessions":0,"length":60,"shared":False})
 
 # ------------------------
 # Fixed Commitments Input
 # ------------------------
 add_commitments = st.sidebar.checkbox("Add fixed commitments for children?")
 days_of_week = ["Monday","Tuesday","Wednesday","Thursday","Friday"]
+
+if not add_commitments:
+    st.session_state["commitments"] = {kid: [] for kid in children}
 
 if add_commitments:
     st.sidebar.subheader("Fixed Commitments")
@@ -61,7 +63,7 @@ if add_commitments:
             name = st.sidebar.text_input(f"Commitment {i+1} Name ({kid})", key=f"{kid}_commit_name_{i}")
             day = st.sidebar.selectbox(f"Day ({kid})", days_of_week, key=f"{kid}_commit_day_{i}")
             start = st.sidebar.time_input(f"Start time ({kid})", key=f"{kid}_commit_start_{i}", value=day_start_time)
-            end = st.sidebar.time_input(f"End time ({kid})", key=f"{kid}_commit_end_{i}", value=(datetime.combine(datetime.today(), start) + timedelta(minutes=30)).time())
+            end = st.sidebar.time_input(f"End time ({kid})", key=f"{kid}_commit_end_{i}", value=(datetime.combine(datetime.today(), start) + timedelta(minutes=60)).time())
             if name and start < end:
                 if len(st.session_state["commitments"][kid]) <= i:
                     st.session_state["commitments"][kid].append({})
@@ -138,14 +140,16 @@ def autofill_schedule(subjects, commitments, children, start_time, end_time, inc
                                     "start": slot,
                                     "end": slot + length_delta,
                                     "label": f"{subj['emoji']} {subj['name']}",
-                                    "color": subj["color"]
+                                    "color": subj["color"],
+                                    "shared": True
                                 })
                         else:
                             schedule[kid][day].append({
                                 "start": slot,
                                 "end": slot + length_delta,
                                 "label": f"{subj['emoji']} {subj['name']}",
-                                "color": subj["color"]
+                                "color": subj["color"],
+                                "shared": False
                             })
                         placed_sessions += 1
                         break
@@ -174,18 +178,37 @@ if st.sidebar.button("✨ Autofill Schedule"):
         time_slots.append(cur)
         cur += timedelta(minutes=time_increment)
 
+    # Render table with merged shared subjects
     for day in days_of_week:
         st.markdown(f"### {day}")
-        grid = pd.DataFrame(index=[(datetime.min + t).strftime("%H:%M") for t in time_slots], columns=children)
+        table_html = "<table style='border-collapse: collapse; width: 100%;'>"
+        # Header
+        table_html += "<tr style='background-color:#ddd'><th>Time</th>"
         for kid in children:
-            for t in time_slots:
+            table_html += f"<th>{kid}</th>"
+        table_html += "</tr>"
+        # Rows
+        for t in time_slots:
+            table_html += f"<tr><td>{(datetime.min + t).strftime('%H:%M')}</td>"
+            skip_next = {kid:0 for kid in children}
+            for kid in children:
+                if skip_next[kid]>0:
+                    skip_next[kid]-=1
+                    continue
                 label = ""
+                cell_color = "#fff"
                 for s in schedule[kid][day]:
                     if s["start"] <= t < s["end"]:
                         label = s["label"]
+                        cell_color = s["color"]
+                        # Count how many increments it spans
+                        row_span = int((s["end"]-s["start"]).total_seconds()/(60*time_increment))
+                        skip_next[kid] = row_span-1
                         break
-                grid.at[(datetime.min + t).strftime("%H:%M"), kid] = label
-        st.dataframe(grid)
+                table_html += f"<td style='background-color:{cell_color}; text-align:center'>{label}</td>"
+            table_html += "</tr>"
+        table_html += "</table>"
+        st.markdown(table_html, unsafe_allow_html=True)
 
     # Summary
     st.subheader("📊 Weekly Summary")
