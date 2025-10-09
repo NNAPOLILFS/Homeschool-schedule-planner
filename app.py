@@ -41,7 +41,7 @@ for kid in children:
         with col2:
             subj["sessions"] = st.number_input(f"Sessions/week", min_value=0, max_value=10, value=subj["sessions"], step=1, key=f"{kid}_sess_{i}")
         with col3:
-            subj["length"] = st.number_input(f"Length (min)", min_value=15, step=15, value=subj["length"], key=f"{kid}_len_{i}")
+            subj["length"] = st.number_input(f"Length (min)", min_value=time_increment, step=time_increment, value=subj["length"], key=f"{kid}_len_{i}")
         with col4:
             subj["shared"] = st.checkbox("Shared", value=subj["shared"], key=f"{kid}_shared_{i}")
 
@@ -60,7 +60,8 @@ if add_commitments:
     st.header("Fixed Commitments")
     for kid in children:
         st.subheader(f"{kid}'s Commitments")
-        for i in range(2):  # max 2 per child for simplicity
+        # Max 2 commitments per child for speed
+        for i in range(2):
             col1, col2, col3, col4 = st.columns([3,2,1,1])
             with col1:
                 name = st.text_input(f"Commitment {i+1} Name ({kid})", key=f"{kid}_commit_name_{i}")
@@ -69,17 +70,18 @@ if add_commitments:
             with col3:
                 start = st.time_input(f"Start time ({kid})", key=f"{kid}_commit_start_{i}", value=day_start_time)
             with col4:
-                end = st.time_input(f"End time ({kid})", key=f"{kid}_commit_end_{i}", value=(datetime.combine(datetime.today(), start)+timedelta(minutes=30)).time())
+                end = st.time_input(f"End time ({kid})", key=f"{kid}_commit_end_{i}", value=(datetime.combine(datetime.today(), start) + timedelta(minutes=30)).time())
+            
+            # Always update session_state with current input values
             if name and start < end:
-                # Only add once
-                if len([c for c in st.session_state["commitments"][kid] if c.get("key") == f"{kid}_{i}"])==0:
-                    st.session_state["commitments"][kid].append({
-                        "name": name,
-                        "day": day,
-                        "start": timedelta(hours=start.hour, minutes=start.minute),
-                        "end": timedelta(hours=end.hour, minutes=end.minute),
-                        "key": f"{kid}_{i}"
-                    })
+                if len(st.session_state["commitments"][kid]) <= i:
+                    st.session_state["commitments"][kid].append({})
+                st.session_state["commitments"][kid][i] = {
+                    "name": name,
+                    "day": day,
+                    "start": timedelta(hours=start.hour, minutes=start.minute),
+                    "end": timedelta(hours=end.hour, minutes=end.minute)
+                }
 
 # ------------------------
 # Autofill Schedule Function
@@ -87,6 +89,14 @@ if add_commitments:
 def autofill_schedule(subjects, commitments, children, start_time, end_time, increment):
     schedule = {kid:{day:[] for day in ["Monday","Tuesday","Wednesday","Thursday","Friday"]} for kid in children}
     unscheduled = []
+
+    # Ensure every subject has emoji and color
+    for kid in children:
+        for subj in subjects[kid]:
+            if "emoji" not in subj:
+                subj["emoji"] = random.choice(subject_emojis)
+            if "color" not in subj:
+                subj["color"] = random.choice(pastel_palette)
 
     # Create time slots
     slots = []
@@ -178,7 +188,6 @@ if st.button("✨ Autofill Schedule"):
                         label = s["label"]
                         break
                 grid.at[(datetime.min + t).strftime("%H:%M"), kid] = label
-        # Display grid with pandas styling
         st.dataframe(grid)
 
     # Summary
