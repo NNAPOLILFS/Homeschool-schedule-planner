@@ -7,15 +7,19 @@ st.set_page_config(page_title="Homeschool Planner", layout="wide")
 st.title("🎨 Homeschool Planner")
 
 # ------------------------
-# Sidebar Settings
+# Sidebar Inputs
 # ------------------------
 st.sidebar.header("Settings")
-children = [c.strip() for c in st.sidebar.text_input("Enter children's names (comma separated):", "Winter, Micah").split(",")]
-day_start_time = st.sidebar.time_input("School day start time:", datetime.strptime("08:00", "%H:%M").time())
-time_increment = 15  # fixed increment
-day_end_time = datetime.strptime("15:00", "%H:%M").time()  # fixed end time
 
-# Pastel palette and emojis
+# Children
+children = [c.strip() for c in st.sidebar.text_input("Enter children's names (comma separated):", "Winter, Micah").split(",")]
+
+# School day
+day_start_time = st.sidebar.time_input("School day start time:", datetime.strptime("08:00", "%H:%M").time())
+time_increment = st.sidebar.selectbox("Schedule increment (minutes):", [15, 30, 60], index=0)
+day_end_time = st.sidebar.time_input("School day end time:", datetime.strptime("15:00", "%H:%M").time())
+
+# Pastel colors and emojis
 pastel_palette = ["#F9D5E5","#FCE2CE","#D5E1DF","#E2F0CB","#C5D5E4","#F7D8BA","#EAD5E6","#D0E6A5","#FFB7B2","#B5EAD7"]
 subject_emojis = ["📚","🔢","🌏","🎨","🧪"]
 
@@ -31,48 +35,33 @@ if "commitments" not in st.session_state:
 # ------------------------
 # Subjects Input
 # ------------------------
-st.header("Subjects")
+st.sidebar.subheader("Subjects")
 for kid in children:
-    st.subheader(f"{kid}'s Subjects")
+    st.sidebar.markdown(f"**{kid}'s Subjects**")
     for i, subj in enumerate(st.session_state["subjects"][kid]):
-        col1, col2, col3, col4 = st.columns([3,1,1,1])
-        with col1:
-            subj["name"] = st.text_input(f"Name ({kid})", value=subj["name"], key=f"{kid}_name_{i}")
-        with col2:
-            subj["sessions"] = st.number_input(f"Sessions/week", min_value=0, max_value=10, value=subj["sessions"], step=1, key=f"{kid}_sess_{i}")
-        with col3:
-            subj["length"] = st.number_input(f"Length (min)", min_value=time_increment, step=time_increment, value=subj["length"], key=f"{kid}_len_{i}")
-        with col4:
-            subj["shared"] = st.checkbox("Shared", value=subj["shared"], key=f"{kid}_shared_{i}")
-
-    # Add Subject button
-    if st.button(f"Add Subject for {kid}"):
+        subj["name"] = st.sidebar.text_input(f"Name ({kid})", value=subj["name"], key=f"{kid}_name_{i}")
+        subj["sessions"] = st.sidebar.number_input(f"Sessions/week", min_value=0, max_value=10, value=subj["sessions"], step=1, key=f"{kid}_sess_{i}")
+        subj["length"] = st.sidebar.number_input(f"Length (min)", min_value=time_increment, step=time_increment, value=subj["length"], key=f"{kid}_len_{i}")
+        subj["shared"] = st.sidebar.checkbox("Shared", value=subj["shared"], key=f"{kid}_shared_{i}")
+    if st.sidebar.button(f"Add Subject for {kid}"):
         if len(st.session_state["subjects"][kid]) < 5:
             st.session_state["subjects"][kid].append({"name":"","sessions":0,"length":30,"shared":False})
 
 # ------------------------
 # Fixed Commitments Input
 # ------------------------
-add_commitments = st.checkbox("Add fixed commitments for children?")
+add_commitments = st.sidebar.checkbox("Add fixed commitments for children?")
 days_of_week = ["Monday","Tuesday","Wednesday","Thursday","Friday"]
 
 if add_commitments:
-    st.header("Fixed Commitments")
+    st.sidebar.subheader("Fixed Commitments")
     for kid in children:
-        st.subheader(f"{kid}'s Commitments")
-        # Max 2 commitments per child for speed
-        for i in range(2):
-            col1, col2, col3, col4 = st.columns([3,2,1,1])
-            with col1:
-                name = st.text_input(f"Commitment {i+1} Name ({kid})", key=f"{kid}_commit_name_{i}")
-            with col2:
-                day = st.selectbox(f"Day ({kid})", days_of_week, key=f"{kid}_commit_day_{i}")
-            with col3:
-                start = st.time_input(f"Start time ({kid})", key=f"{kid}_commit_start_{i}", value=day_start_time)
-            with col4:
-                end = st.time_input(f"End time ({kid})", key=f"{kid}_commit_end_{i}", value=(datetime.combine(datetime.today(), start) + timedelta(minutes=30)).time())
-            
-            # Always update session_state with current input values
+        st.sidebar.markdown(f"**{kid}'s Commitments**")
+        for i in range(2):  # max 2 commitments for speed
+            name = st.sidebar.text_input(f"Commitment {i+1} Name ({kid})", key=f"{kid}_commit_name_{i}")
+            day = st.sidebar.selectbox(f"Day ({kid})", days_of_week, key=f"{kid}_commit_day_{i}")
+            start = st.sidebar.time_input(f"Start time ({kid})", key=f"{kid}_commit_start_{i}", value=day_start_time)
+            end = st.sidebar.time_input(f"End time ({kid})", key=f"{kid}_commit_end_{i}", value=(datetime.combine(datetime.today(), start) + timedelta(minutes=30)).time())
             if name and start < end:
                 if len(st.session_state["commitments"][kid]) <= i:
                     st.session_state["commitments"][kid].append({})
@@ -87,15 +76,15 @@ if add_commitments:
 # Autofill Schedule Function
 # ------------------------
 def autofill_schedule(subjects, commitments, children, start_time, end_time, increment):
-    schedule = {kid:{day:[] for day in ["Monday","Tuesday","Wednesday","Thursday","Friday"]} for kid in children}
+    schedule = {kid:{day:[] for day in days_of_week} for kid in children}
     unscheduled = []
 
-    # Ensure every subject has emoji and color
+    # Assign emoji and color
     for kid in children:
         for subj in subjects[kid]:
-            if "emoji" not in subj:
+            if "emoji" not in subj or not subj["emoji"]:
                 subj["emoji"] = random.choice(subject_emojis)
-            if "color" not in subj:
+            if "color" not in subj or not subj["color"]:
                 subj["color"] = random.choice(pastel_palette)
 
     # Create time slots
@@ -116,14 +105,23 @@ def autofill_schedule(subjects, commitments, children, start_time, end_time, inc
                 "color": "#CCCCCC"
             })
 
-    # Place subjects
+    # Place subjects with even distribution
     for kid in children:
         for subj in subjects[kid]:
             if subj["sessions"]==0 or not subj["name"]:
                 continue
             length_delta = timedelta(minutes=subj["length"])
             placed_sessions = 0
-            for day in ["Monday","Tuesday","Wednesday","Thursday","Friday"]:
+            num_sessions = subj["sessions"]
+
+            # Determine target days
+            if num_sessions <= len(days_of_week):
+                target_days = random.sample(days_of_week, num_sessions)
+            else:
+                times, remainder = divmod(num_sessions, len(days_of_week))
+                target_days = days_of_week * times + random.sample(days_of_week, remainder)
+
+            for day in target_days:
                 for slot in slots:
                     overlap = any(not(slot + length_delta <= s["start"] or slot >= s["end"]) for s in schedule[kid][day])
                     if not overlap:
@@ -150,7 +148,6 @@ def autofill_schedule(subjects, commitments, children, start_time, end_time, inc
                                 "color": subj["color"]
                             })
                         placed_sessions += 1
-                    if placed_sessions >= subj["sessions"]:
                         break
                 if placed_sessions >= subj["sessions"]:
                     break
@@ -159,14 +156,14 @@ def autofill_schedule(subjects, commitments, children, start_time, end_time, inc
 
     # Sort schedules
     for kid in children:
-        for day in ["Monday","Tuesday","Wednesday","Thursday","Friday"]:
+        for day in days_of_week:
             schedule[kid][day] = sorted(schedule[kid][day], key=lambda x: x["start"])
     return schedule, unscheduled
 
 # ------------------------
 # Display Timetable
 # ------------------------
-if st.button("✨ Autofill Schedule"):
+if st.sidebar.button("✨ Autofill Schedule"):
     schedule, unscheduled = autofill_schedule(st.session_state["subjects"], st.session_state["commitments"], children, day_start_time, day_end_time, time_increment)
     st.subheader("📅 Daily Schedule")
 
@@ -177,7 +174,7 @@ if st.button("✨ Autofill Schedule"):
         time_slots.append(cur)
         cur += timedelta(minutes=time_increment)
 
-    for day in ["Monday","Tuesday","Wednesday","Thursday","Friday"]:
+    for day in days_of_week:
         st.markdown(f"### {day}")
         grid = pd.DataFrame(index=[(datetime.min + t).strftime("%H:%M") for t in time_slots], columns=children)
         for kid in children:
@@ -195,7 +192,7 @@ if st.button("✨ Autofill Schedule"):
     summary = []
     for kid in children:
         total_minutes = 0
-        for day in ["Monday","Tuesday","Wednesday","Thursday","Friday"]:
+        for day in days_of_week:
             total_minutes += sum((s["end"]-s["start"]).total_seconds()/60 for s in schedule[kid][day] if not s["label"].startswith("🕒"))
         summary.append({"Child": kid, "Total Hours": round(total_minutes/60,2)})
     st.table(pd.DataFrame(summary))
