@@ -1,55 +1,62 @@
-# app.py – Homeschool Planner v0.4
-# Features added in v0.4:
-# - Optional starting checklist of generic subjects per child
-# - User can untick any subjects they don’t want
-# - Shared tick box remains next to each subject
-# Previous features from v0.3 retained
-
+# app.py
 import streamlit as st
+from datetime import time
 
-# --- Sample data: Children and default subjects ---
-children = ["Child 1", "Child 2", "Child 3"]
-generic_subjects = ["Math", "English", "Science", "History", "Art", "Music", "PE"]
+# --- Helper functions ---
+def get_default_subjects():
+    """Return a generic starting checklist of subjects."""
+    return ["Math", "English", "Science", "Art", "Music", "PE", "History", "Geography"]
 
-# --- Sidebar / top settings ---
-st.sidebar.header("Homeschool Planner Settings")
+def create_subjects_for_child(child_name):
+    """Create a subject selection dictionary for a child."""
+    subjects = get_default_subjects()
+    subject_dict = {}
+    for subj in subjects:
+        # Each subject has a shared tick option (default False)
+        subject_dict[subj] = {"shared": False, "selected": True}  # selected=True by default
+    return subject_dict
 
-# Select children (for simplicity, all selected)
-selected_children = st.sidebar.multiselect("Select Children", children, default=children)
+# --- Sidebar / Top Config ---
+st.sidebar.title("Homeschool Planner - Version 0.4")
 
-# --- Subject selection per child ---
-st.sidebar.subheader("Subjects per Child")
-subjects_per_child = {}
+# List of children
+children = st.sidebar.multiselect("Select children", ["Child 1", "Child 2", "Child 3"], default=["Child 1"])
 
-for child in selected_children:
-    st.sidebar.markdown(f"**{child}**")
+# Dictionary to store subjects per child
+child_subjects = {}
+
+for child in children:
+    st.sidebar.subheader(child)
     
-    # v0.4: Optional starting checklist of generic subjects
-    use_default = st.sidebar.checkbox(f"Use default subjects for {child}", value=True, key=f"default_{child}")
+    # If not already created, initialize subjects
+    if child not in child_subjects:
+        child_subjects[child] = create_subjects_for_child(child)
     
-    # Display subjects with checkboxes
-    if use_default:
-        subjects = []
-        for subj in generic_subjects:
-            checked = st.sidebar.checkbox(subj, value=True, key=f"{child}_{subj}")
-            subjects.append(subj if checked else None)
-        subjects_per_child[child] = [s for s in subjects if s is not None]
-    else:
-        # Allow user to input custom subjects
-        custom_subjects = st.sidebar.text_area(f"Enter subjects for {child}, comma-separated", key=f"custom_{child}")
-        subjects_per_child[child] = [s.strip() for s in custom_subjects.split(",") if s.strip()]
+    for subj, vals in child_subjects[child].items():
+        col1, col2 = st.sidebar.columns([3,1])
+        with col1:
+            # Checkbox for selecting subject (default True)
+            vals["selected"] = st.checkbox(subj, value=vals["selected"], key=f"{child}_{subj}_select")
+        with col2:
+            # Shared checkbox for subject
+            vals["shared"] = st.checkbox("Shared", value=vals["shared"], key=f"{child}_{subj}_shared")
 
-# --- Shared tick box example ---
-st.sidebar.subheader("Shared Options")
-shared_option = st.sidebar.checkbox("Shared Tick Box Example")
+# --- Schedule Configuration ---
+st.sidebar.subheader("Schedule Settings")
+start_hour = st.sidebar.number_input("Day start hour", min_value=6, max_value=12, value=7)
+end_hour = 17  # Fixed for now
 
-# --- Main Schedule Display ---
-st.header("Weekly Schedule")
+# --- Main Schedule View ---
+st.title("Weekly Homeschool Schedule")
+st.write(f"Schedule from {start_hour}:00 to {end_hour}:00")
 
-for child in selected_children:
-    st.subheader(f"{child}'s Subjects")
-    st.write(subjects_per_child[child])
+# Generate a simple schedule per child
+for child in children:
+    st.header(child)
+    st.write("Subjects selected for this child:")
+    for subj, vals in child_subjects[child].items():
+        if vals["selected"]:
+            shared_text = " (Shared)" if vals["shared"] else ""
+            st.write(f"- {subj}{shared_text}")
 
-# Placeholder for schedule grid (to be expanded in future versions)
-st.info("Schedule grid will be implemented in future versions (v0.5+).")
-
+st.write("Schedule generation and layout will come in future versions.")
