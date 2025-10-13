@@ -1,10 +1,11 @@
 """
-Homeschool Planner - Version 0.6.a
+Homeschool Planner - Version 0.6.c
 Changes:
-- Built from baseline v0.3 (subject row = name, duration, sessions, shared checkbox)
-- Includes v0.5.a upgrade: weekday/weekend toggles
+- Fully corrected version from baseline v0.3 with subject row (name, duration, sessions, shared checkbox)
+- Includes weekday/weekend toggles (v0.5)
 - Fixed commitments dropdown now shows all hours from day start to 5 PM
 - Added shared tick box for each fixed commitment
+- Fixes number_input to return integers for duration and sessions
 - Preserves all previous functionality:
     - Children names input
     - Subject management per child
@@ -28,7 +29,7 @@ def generate_schedule(subject_list, start_hour, end_hour, fixed_commitments):
         if start_hour <= fc_hour < end_hour:
             schedule[fc_hour] = (fc_name, fc_shared)
     
-    # Flatten subjects into repeating blocks according to sessions and duration
+    # Flatten subjects into repeating blocks according to sessions
     flat_subjects = []
     for subj in subject_list:
         if subj["name"] and subj["sessions"] > 0 and subj["duration"] > 0:
@@ -45,7 +46,7 @@ def generate_schedule(subject_list, start_hour, end_hour, fixed_commitments):
     return schedule
 
 # --- Sidebar Configuration ---
-st.sidebar.title("Homeschool Planner - Version 0.6.a")
+st.sidebar.title("Homeschool Planner - Version 0.6.c")
 
 # Children names input
 children = st.sidebar.text_area("Enter children names (comma-separated)", "Child 1,Child 2").split(",")
@@ -59,8 +60,10 @@ for child in children:
         child_subjects[child] = []  # List of subject dicts
     
     # Dynamic number of subjects
-    num_subjects = st.sidebar.number_input(f"Number of subjects for {child}", min_value=1, max_value=20, value=4, key=f"num_subj_{child}")
-    # Adjust existing list if needed
+    num_subjects = st.sidebar.number_input(
+        f"Number of subjects for {child}", min_value=1, max_value=20, value=4, key=f"num_subj_{child}", format="%d"
+    )
+    # Adjust existing list
     while len(child_subjects[child]) < num_subjects:
         child_subjects[child].append({"name":"", "duration":1, "sessions":1, "shared":False})
     while len(child_subjects[child]) > num_subjects:
@@ -71,19 +74,23 @@ for child in children:
         with col1:
             subj["name"] = st.text_input(f"Subject {i+1}", value=subj.get("name",""), key=f"{child}_name_{i}")
         with col2:
-            subj["duration"] = st.number_input("Duration", min_value=1, max_value=8, value=subj.get("duration",1), key=f"{child}_dur_{i}")
+            subj["duration"] = st.number_input(
+                "Duration", min_value=1, max_value=8, value=int(subj.get("duration",1)), key=f"{child}_dur_{i}", format="%d"
+            )
         with col3:
-            subj["sessions"] = st.number_input("Sessions", min_value=1, max_value=8, value=subj.get("sessions",1), key=f"{child}_sess_{i}")
+            subj["sessions"] = st.number_input(
+                "Sessions", min_value=1, max_value=8, value=int(subj.get("sessions",1)), key=f"{child}_sess_{i}", format="%d"
+            )
         with col4:
             subj["shared"] = st.checkbox("Shared", value=subj.get("shared",False), key=f"{child}_shared_{i}")
 
 # --- Fixed Commitments Input ---
 st.sidebar.subheader("Fixed Commitments (Select Hour & Shared)")
 fixed_commitments = []
-for i in range(5):  # Allow up to 5 fixed commitments
+for i in range(5):  # Up to 5 fixed commitments
     cols = st.sidebar.columns([2,3,1])
     with cols[0]:
-        hour = st.number_input(f"Start Hour {i+1}", min_value=6, max_value=17, value=8, key=f"fc_hour_{i}")
+        hour = st.number_input(f"Start Hour {i+1}", min_value=6, max_value=17, value=8, key=f"fc_hour_{i}", format="%d")
     with cols[1]:
         name = st.text_input(f"Name {i+1}", key=f"fc_name_{i}")
     with cols[2]:
@@ -93,13 +100,13 @@ for i in range(5):  # Allow up to 5 fixed commitments
 
 # Schedule settings
 st.sidebar.subheader("Schedule Settings")
-start_hour = st.sidebar.number_input("Day start hour", min_value=6, max_value=12, value=7)
-end_hour = 17  # Fixed
+start_hour = st.sidebar.number_input("Day start hour", min_value=6, max_value=12, value=7, format="%d")
+end_hour = 17  # Fixed end of day
 
 # Autofill button
 autofill = st.sidebar.button("Autofill Schedule")
 
-# Weekday/Weekend toggles (from v0.5.a)
+# Weekday/Weekend toggles
 st.sidebar.subheader("Select Days to Include in Schedule")
 include_weekdays = st.sidebar.checkbox("Include Weekdays (Mon-Fri)", value=True)
 include_saturday = st.sidebar.checkbox("Include Saturday", value=True)
