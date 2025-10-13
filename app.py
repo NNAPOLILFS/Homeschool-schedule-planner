@@ -94,4 +94,41 @@ for i in range(5):  # Allow up to 5 fixed commitments
 # Schedule settings
 st.sidebar.subheader("Schedule Settings")
 start_hour = st.sidebar.number_input("Day start hour", min_value=6, max_value=12, value=7)
-end
+end_hour = 17  # Fixed
+
+# Autofill button
+autofill = st.sidebar.button("Autofill Schedule")
+
+# Weekday/Weekend toggles (from v0.5.a)
+st.sidebar.subheader("Select Days to Include in Schedule")
+include_weekdays = st.sidebar.checkbox("Include Weekdays (Mon-Fri)", value=True)
+include_saturday = st.sidebar.checkbox("Include Saturday", value=True)
+include_sunday = st.sidebar.checkbox("Include Sunday", value=True)
+
+days = []
+if include_weekdays:
+    days += ["Monday", "Tuesday", "Wednesday", "Thursday", "Friday"]
+if include_saturday:
+    days.append("Saturday")
+if include_sunday:
+    days.append("Sunday")
+
+# --- Main Schedule View ---
+st.title("Weekly Homeschool Schedule")
+st.write(f"Schedule from {start_hour}:00 to {end_hour}:00")
+
+for day in days:
+    st.subheader(day)
+    for child in children:
+        st.markdown(f"**{child}**")
+        schedule = generate_schedule(child_subjects[child], start_hour, end_hour, fixed_commitments)
+        if schedule:
+            for hour in range(start_hour, end_hour):
+                if hour in schedule:
+                    subj_name, shared = schedule[hour]
+                    shared_text = " (Shared)" if shared else ""
+                    st.write(f"{hour}:00 - {subj_name}{shared_text}")
+                else:
+                    st.write(f"{hour}:00 - Free")
+        else:
+            st.write("No subjects defined for this child.")
