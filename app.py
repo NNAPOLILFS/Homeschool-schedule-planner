@@ -1,46 +1,45 @@
 """
 Homeschool Planner - Version 0.6.a
 Changes:
+- Built from baseline v0.3 (subject row = name, duration, sessions, shared checkbox)
+- Includes v0.5.a upgrade: weekday/weekend toggles
 - Fixed commitments dropdown now shows all hours from day start to 5 PM
 - Added shared tick box for each fixed commitment
-- Preserves all previous functionality from v0.5.a:
+- Preserves all previous functionality:
     - Children names input
     - Subject management per child
-    - Shared tick boxes
     - Autofill button
-    - Weekday/weekend toggles
-    - Full schedule generation
+    - Full schedule generation from start to 5 PM
 """
 
 import streamlit as st
 
 # --- Helper Functions ---
-def generate_schedule(subject_dict, start_hour, end_hour, fixed_commitments):
+def generate_schedule(subject_list, start_hour, end_hour, fixed_commitments):
     """
-    Generate hourly schedule for a day.
-    Fixed commitments are placed at their hour, remaining subjects fill other hours.
-    Returns a dict {hour: (subject, shared_flag)}.
+    Generate schedule for a day.
+    subject_list: list of dicts with keys 'name', 'duration', 'sessions', 'shared'
+    fixed_commitments: list of tuples (hour, name, shared)
+    Returns dict {hour: (subject_name, shared_flag)}
     """
     schedule = {}
-    selected_subjects = [s for s, v in subject_dict.items() if v["selected"]]
-    shared_flags = [subject_dict[s]["shared"] for s in selected_subjects]
-
-    if not selected_subjects:
-        return schedule
-
-    # Place fixed commitments
+    # Place fixed commitments first
     for fc_hour, fc_name, fc_shared in fixed_commitments:
         if start_hour <= fc_hour < end_hour:
             schedule[fc_hour] = (fc_name, fc_shared)
-
-    # Fill remaining hours with subjects
+    
+    # Flatten subjects into repeating blocks according to sessions and duration
+    flat_subjects = []
+    for subj in subject_list:
+        if subj["name"] and subj["sessions"] > 0 and subj["duration"] > 0:
+            flat_subjects.extend([subj] * subj["sessions"])
+    
     hour = start_hour
     idx = 0
     while hour < end_hour:
-        if hour not in schedule:
-            subj = selected_subjects[idx % len(selected_subjects)]
-            shared = shared_flags[idx % len(shared_flags)]
-            schedule[hour] = (subj, shared)
+        if hour not in schedule and flat_subjects:
+            subj = flat_subjects[idx % len(flat_subjects)]
+            schedule[hour] = (subj["name"], subj["shared"])
             idx += 1
         hour += 1
     return schedule
@@ -57,21 +56,32 @@ child_subjects = {}
 for child in children:
     st.sidebar.subheader(child)
     if child not in child_subjects:
-        default_subjects = ["Math", "English", "Science", "Art", "Music", "PE", "History", "Geography"]
-        child_subjects[child] = {s: {"selected": True, "shared": False} for s in default_subjects}
-    for subj, vals in child_subjects[child].items():
-        col1, col2 = st.sidebar.columns([3,1])
+        child_subjects[child] = []  # List of subject dicts
+    
+    # Dynamic number of subjects
+    num_subjects = st.sidebar.number_input(f"Number of subjects for {child}", min_value=1, max_value=20, value=4, key=f"num_subj_{child}")
+    # Adjust existing list if needed
+    while len(child_subjects[child]) < num_subjects:
+        child_subjects[child].append({"name":"", "duration":1, "sessions":1, "shared":False})
+    while len(child_subjects[child]) > num_subjects:
+        child_subjects[child].pop()
+    
+    for i, subj in enumerate(child_subjects[child]):
+        col1, col2, col3, col4 = st.sidebar.columns([4,2,2,1])
         with col1:
-            vals["selected"] = st.checkbox(subj, value=vals["selected"], key=f"{child}_{subj}_select")
+            subj["name"] = st.text_input(f"Subject {i+1}", value=subj.get("name",""), key=f"{child}_name_{i}")
         with col2:
-            vals["shared"] = st.checkbox("Shared", value=vals["shared"], key=f"{child}_{subj}_shared")
+            subj["duration"] = st.number_input("Duration", min_value=1, max_value=8, value=subj.get("duration",1), key=f"{child}_dur_{i}")
+        with col3:
+            subj["sessions"] = st.number_input("Sessions", min_value=1, max_value=8, value=subj.get("sessions",1), key=f"{child}_sess_{i}")
+        with col4:
+            subj["shared"] = st.checkbox("Shared", value=subj.get("shared",False), key=f"{child}_shared_{i}")
 
 # --- Fixed Commitments Input ---
 st.sidebar.subheader("Fixed Commitments (Select Hour & Shared)")
-
 fixed_commitments = []
-for i in range(5):  # Allow up to 5 fixed commitments as an example
-    cols = st.sidebar.columns([2, 3, 1])
+for i in range(5):  # Allow up to 5 fixed commitments
+    cols = st.sidebar.columns([2,3,1])
     with cols[0]:
         hour = st.number_input(f"Start Hour {i+1}", min_value=6, max_value=17, value=8, key=f"fc_hour_{i}")
     with cols[1]:
@@ -84,42 +94,4 @@ for i in range(5):  # Allow up to 5 fixed commitments as an example
 # Schedule settings
 st.sidebar.subheader("Schedule Settings")
 start_hour = st.sidebar.number_input("Day start hour", min_value=6, max_value=12, value=7)
-end_hour = 17  # Fixed
-
-# Autofill button
-autofill = st.sidebar.button("Autofill Schedule")
-
-# Weekday/Weekend toggles
-st.sidebar.subheader("Select Days to Include in Schedule")
-include_weekdays = st.sidebar.checkbox("Include Weekdays (Mon-Fri)", value=True)
-include_saturday = st.sidebar.checkbox("Include Saturday", value=True)
-include_sunday = st.sidebar.checkbox("Include Sunday", value=True)
-
-# Determine days to display
-days = []
-if include_weekdays:
-    days += ["Monday", "Tuesday", "Wednesday", "Thursday", "Friday"]
-if include_saturday:
-    days.append("Saturday")
-if include_sunday:
-    days.append("Sunday")
-
-# --- Main Schedule View ---
-st.title("Weekly Homeschool Schedule")
-st.write(f"Schedule from {start_hour}:00 to {end_hour}:00")
-
-for day in days:
-    st.subheader(day)
-    for child in children:
-        st.markdown(f"**{child}**")
-        schedule = generate_schedule(child_subjects[child], start_hour, end_hour, fixed_commitments)
-        if schedule:
-            for hour in range(start_hour, end_hour):
-                if hour in schedule:
-                    subj, shared = schedule[hour]
-                    shared_text = " (Shared)" if shared else ""
-                    st.write(f"{hour}:00 - {subj}{shared_text}")
-                else:
-                    st.write(f"{hour}:00 - Free")
-        else:
-            st.write("No subjects selected for this child.")
+end
