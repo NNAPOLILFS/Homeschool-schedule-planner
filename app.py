@@ -1,68 +1,84 @@
 """
-Homeschool Planner - Version 0.6.e
+Homeschool Planner - Version 0.6.f
 Changes:
-- Duration options fixed to 15, 30, 60 minutes
-- Schedule displayed in table format (like baseline v0.3)
-- Preserves all previous functionality:
+- Fixed schedule generation to correctly respect subject durations (15/30/60) and sessions
+- Subjects now fill the correct number of consecutive 15-min slots
+- Schedule stops at end_hour (5 PM)
+- Table view preserved per child per day
+- All previous functionality preserved:
     - Children names input
     - Subject rows (name, duration, sessions, shared)
     - Fixed commitments with shared tick box
     - Autofill button
     - Weekday/weekend toggles
-    - Full schedule generation from start to 5 PM
 """
 
 import streamlit as st
 import pandas as pd
-import math
 
 # --- Helper Functions ---
 def generate_schedule(subject_list, start_hour, end_hour, fixed_commitments):
     """
-    Generate schedule for a day using duration in minutes.
-    Returns list of dicts: [{"time": "HH:MM", "subject": name, "shared": bool}]
+    Generate schedule table per day.
+    subject_list: list of dicts with keys 'name', 'duration', 'sessions', 'shared'
+    fixed_commitments: list of tuples (hour, name, shared)
+    Returns list of dicts [{"Time": "HH:MM", "Subject": name}]
     """
-    # Build a list of time slots
+    # Create all 15-min slots in the day
     slots = []
     for hour in range(start_hour, end_hour):
         for minute in [0, 15, 30, 45]:
             slots.append(hour*60 + minute)  # minutes since midnight
 
+    # Initialize schedule dictionary
+    schedule_dict = {s: None for s in slots}
+
     # Apply fixed commitments
-    schedule_dict = {}  # key: slot in minutes, value: (name, shared)
     for fc_hour, fc_name, fc_shared in fixed_commitments:
-        slot = fc_hour*60
-        if slot in slots:
+        slot = fc_hour * 60
+        if slot in schedule_dict:
             schedule_dict[slot] = (fc_name, fc_shared)
 
-    # Flatten subjects into repeated blocks according to sessions
+    # Flatten subjects into repeated sessions
     flat_subjects = []
     for subj in subject_list:
-        if subj["name"] and subj["sessions"] > 0 and subj["duration"] > 0:
-            for _ in range(subj["sessions"]):
-                flat_subjects.append(subj)
+        for _ in range(subj["sessions"]):
+            flat_subjects.append(subj)
 
-    # Fill remaining slots
-    idx = 0
-    for slot in slots:
-        if slot not in schedule_dict and flat_subjects:
-            subj = flat_subjects[idx % len(flat_subjects)]
-            duration = subj["duration"]
-            schedule_dict[slot] = (subj["name"], subj["shared"])
-            idx += 1
-    # Convert to table-friendly list
+    # Fill remaining slots respecting duration
+    slot_idx = 0
+    subj_idx = 0
+    while slot_idx < len(slots) and subj_idx < len(flat_subjects):
+        current_slot = slots[slot_idx]
+        if schedule_dict[current_slot] is None:
+            subj = flat_subjects[subj_idx]
+            blocks = subj["duration"] // 15  # number of 15-min slots
+            # Fill consecutive slots
+            for b in range(blocks):
+                if slot_idx + b < len(slots):
+                    next_slot = slots[slot_idx + b]
+                    if schedule_dict[next_slot] is None:
+                        schedule_dict[next_slot] = (subj["name"], subj["shared"])
+            subj_idx += 1
+        slot_idx += 1
+
+    # Convert schedule_dict to table format
     schedule_table = []
-    for slot in sorted(schedule_dict.keys()):
+    for slot in sorted(slots):
         hour = slot // 60
         minute = slot % 60
         time_str = f"{hour:02d}:{minute:02d}"
-        name, shared = schedule_dict[slot]
-        shared_text = " (Shared)" if shared else ""
-        schedule_table.append({"Time": time_str, "Subject": name + shared_text})
+        entry = schedule_dict[slot]
+        if entry:
+            name, shared = entry
+            shared_text = " (Shared)" if shared else ""
+            schedule_table.append({"Time": time_str, "Subject": name + shared_text})
+        else:
+            schedule_table.append({"Time": time_str, "Subject": "Free"})
     return schedule_table
 
 # --- Sidebar Configuration ---
-st.sidebar.title("Homeschool Planner - Version 0.6.e")
+st.sidebar.title("Homeschool Planner - Version 0.6.f")
 
 # Children names input
 children = st.sidebar.text_area("Enter children names (comma-separated)", "Child 1,Child 2").split(",")
@@ -74,16 +90,15 @@ for child in children:
     st.sidebar.subheader(child)
     if child not in child_subjects:
         child_subjects[child] = []
-    
+
     num_subjects = st.sidebar.number_input(
         f"Number of subjects for {child}", min_value=1, max_value=20, value=4, key=f"num_subj_{child}", format="%d"
     )
-    # Adjust list
     while len(child_subjects[child]) < num_subjects:
         child_subjects[child].append({"name":"", "duration":15, "sessions":1, "shared":False})
     while len(child_subjects[child]) > num_subjects:
         child_subjects[child].pop()
-    
+
     for i, subj in enumerate(child_subjects[child]):
         col1, col2, col3, col4 = st.sidebar.columns([4,2,2,1])
         with col1:
@@ -117,7 +132,7 @@ for i in range(5):
 # Schedule settings
 st.sidebar.subheader("Schedule Settings")
 start_hour = st.sidebar.number_input("Day start hour", min_value=6, max_value=12, value=7, format="%d")
-end_hour = 17
+end_hour = 17  # Fixed
 
 # Autofill button
 autofill = st.sidebar.button("Autofill Schedule")
@@ -145,8 +160,5 @@ for day in days:
     for child in children:
         st.markdown(f"**{child}**")
         schedule_table = generate_schedule(child_subjects[child], start_hour, end_hour, fixed_commitments)
-        if schedule_table:
-            df = pd.DataFrame(schedule_table)
-            st.table(df)
-        else:
-            st.write("No subjects defined for this child.")
+        df = pd.DataFrame(schedule_table)
+        st.table(df)
