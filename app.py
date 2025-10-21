@@ -1,3 +1,126 @@
+# app_v1_3_fixed.py
+"""
+Streamlit Homeschool Planner v1.3 (fixed)
+- In-memory store (no DB yet)
+- Smart AI Search (OpenLibrary + optional YouTube)
+- Schedule generator logic (v0.6b-inspired)
+- Uses OpenAI new SDK syntax with fallback for missing key
+"""
+
+import os
+import time
+from typing import List, Dict
+import streamlit as st
+import requests
+import numpy as np
+
+# Optional FAISS for vector search
+try:
+    import faiss
+except Exception:
+    faiss = None
+
+# -------------------------
+# Config / Constants
+# -------------------------
+EMBED_MODEL = "text-embedding-3-small"
+CHAT_MODEL = "gpt-4o-mini"  # fast + free-tier friendly
+DEFAULT_TOP_K = 6  # must be defined before functions
+
+# -------------------------
+# OpenAI setup (new SDK)
+# -------------------------
+try:
+    from openai import OpenAI
+    client = OpenAI(api_key=os.getenv("OPENAI_API_KEY", ""))
+except Exception:
+    client = None
+
+# -------------------------
+# Helper: get/set API key
+# -------------------------
+def ensure_openai_key():
+    global client
+    sidebar_key = st.sidebar.text_input("🔑 OpenAI API key (optional)", type="password")
+    if sidebar_key:
+        os.environ["OPENAI_API_KEY"] = sidebar_key
+        try:
+            client = OpenAI(api_key=sidebar_key)
+        except Exception:
+            client = None
+    if not os.getenv("OPENAI_API_KEY"):
+        st.sidebar.info("App still works without AI — smart search & explanations require a key.")
+    return client is not None
+
+# -------------------------
+# Session store
+# -------------------------
+def init_store():
+    if "lessons" not in st.session_state:
+        st.session_state["lessons"] = []
+    if "embeddings_cache" not in st.session_state:
+        st.session_state["embeddings_cache"] = {}
+
+init_store()
+
+def add_lesson(title, content, subject, minutes):
+    doc_id = f"local_{len(st.session_state['lessons']) + 1}"
+    item = {"id": doc_id, "title": title, "content": content, "subject": subject, "minutes": minutes}
+    st.session_state["lessons"].append(item)
+    return item
+
+# -------------------------
+# External fetchers
+# -------------------------
+def fetch_openlibrary(query, limit=6):
+    url = "https://openlibrary.org/search.json"
+    try:
+        r = requests.get(url, params={"q": query, "limit": limit}, timeout=10)
+        data = r.json()
+    except Exception:
+        return []
+    items = []
+    for doc in data.get("docs", [])[:limit]:
+        title = doc.get("title", "Untitled")
+        authors = ", ".join(doc.get("author_name", []) or [])
+        year = doc.get("first_publish_year", "")
+        snippet = doc.get("first_sentence") or doc.get("subtitle") or ""
+        text = f"{title} by {authors}. Published {year}. {snippet}"
+        items.append({
+            "id": f"ol_{doc.get('key')}",
+            "title": title,
+            "source": "OpenLibrary",
+            "url": f"https://openlibrary.org{doc.get('key')}" if doc.get("key") else "",
+            "text": text
+        })
+    return items
+
+def fetch_youtube(query, api_key, limit=6):
+    if not api_key:
+        return []
+    url = "https://www.googleapis.com/youtube/v3/search"
+    try:
+        r = requests.get(url, params={"part": "snippet", "q": query, "type": "video",
+                                      "maxResults": limit, "key": api_key}, timeout=10)
+        data = r.json()
+    except Exception:
+        return []
+    items = []
+    for it in data.get("items", [])[:limit]:
+        snip = it["snippet"]
+        title = snip.get("title", "")
+        desc = snip.get("description", "")
+        vid = it["id"]["videoId"]
+        text = f"{title}. {desc}"
+        items.append({
+            "id": f"yt_{vid}",
+            "title": title,
+            "source": "YouTube",
+            "url": f"https://youtu.be/{vid}",
+            "text": text
+        })
+    return items
+
 # -------------------------
 # Embeddings & semantic similarity
 # -------------------------
@@ -10,7 +133,9 @@ def get_embedding(text: str):
     except Exception:
         return np.zeros(1536, dtype=np.float32)
 
-def semantic_search(query, items, top_k=DEFAULT_TOP_K):
+def semantic_search(query, items, top_k=None):
+    if top_k is None:
+        top_k = DEFAULT_TOP_K
     if not items:
         return []
     q_emb = get_embedding(query)
@@ -18,7 +143,6 @@ def semantic_search(query, items, top_k=DEFAULT_TOP_K):
         st.session_state["embeddings_cache"].get(it["id"], get_embedding(it["text"]))
         for it in items
     ]
-    # Cache embeddings
     for i, it in enumerate(items):
         st.session_state["embeddings_cache"][it["id"]] = all_vecs[i]
     mat = np.vstack(all_vecs)
