@@ -1,10 +1,10 @@
-# app_v1_6_2.py
+# app_v1_6_3.py
 """
-Homeschool Planner v1.6.2
-- Book Search (renamed)
-- Clock-style inputs for start/end times
-- Grid-style weekly schedule (day boxes with kids and times)
-- Dynamic kids, subjects, lessons, commitments
+Homeschool Planner v1.6.3
+- Full dynamic UI: Kids, Subjects, Lessons, Commitments
+- Book Search (OpenLibrary)
+- Weekly Schedule Grid
+- Clock-style time inputs
 """
 
 import streamlit as st
@@ -48,7 +48,7 @@ def add_subject(name, duration=30, sessions_per_week=1, kids=[]):
     })
     return subj_id
 
-def add_lesson(title, text, subject_id, kid_id=None):
+def add_lesson(title, text, subject_id=None, kid_id=None):
     lesson_id = f"lesson_{len(st.session_state['lessons'])+1}"
     st.session_state["lessons"].append({
         "id": lesson_id,
@@ -122,7 +122,6 @@ def create_time_blocks(start_hour=6, end_hour=18, block_minutes=30):
 
 def generate_weekly_grid_schedule(block_minutes=30):
     days = ["Monday", "Tuesday", "Wednesday", "Thursday", "Friday"]
-    time_blocks = create_time_blocks(block_minutes=block_minutes)
     schedule_grid = {day: {k["name"]: [] for k in st.session_state["kids"]} for day in days}
     
     for kid in st.session_state["kids"]:
@@ -131,9 +130,7 @@ def generate_weekly_grid_schedule(block_minutes=30):
         for c in st.session_state["commitments"]:
             if c["kid_id"] != kid["id"]:
                 continue
-            start_dt = c["start"]
-            end_dt = c["end"]
-            schedule_grid[c["day"]][kid_name].append({"start": start_dt, "end": end_dt, "event": f"Fixed: {c['description']}"})
+            schedule_grid[c["day"]][kid_name].append({"start": c["start"], "end": c["end"], "event": f"Fixed: {c['description']}"})
         # Lessons
         for subj in st.session_state["subjects"]:
             if kid["id"] not in subj["kids"]:
@@ -142,9 +139,11 @@ def generate_weekly_grid_schedule(block_minutes=30):
             for day in days:
                 if assigned_sessions >= subj["sessions_per_week"]:
                     break
-                start_time = time(6 + assigned_sessions*subj["duration"]//60, 0)
-                end_hour = start_time.hour + subj["duration"]//60
-                end_minute = start_time.minute + subj["duration"]%60
+                start_hour = 6 + assigned_sessions*(subj["duration"]//60)
+                start_minute = assigned_sessions*(subj["duration"]%60)
+                start_time = time(start_hour, start_minute)
+                end_hour = start_hour + subj["duration"]//60
+                end_minute = start_minute + subj["duration"]%60
                 end_time = time(end_hour, end_minute)
                 schedule_grid[day][kid_name].append({"start": start_time, "end": end_time, "event": f"Lesson: {subj['name']}"})
                 assigned_sessions += 1
@@ -153,10 +152,74 @@ def generate_weekly_grid_schedule(block_minutes=30):
 # -------------------------
 # Streamlit UI
 # -------------------------
-st.set_page_config(page_title="Homeschool Planner v1.6.2", layout="wide")
-st.title("🎓 Homeschool Planner v1.6.2")
+st.set_page_config(page_title="Homeschool Planner v1.6.3", layout="wide")
+st.title("🎓 Homeschool Planner v1.6.3")
 
 tabs = st.tabs(["👶 Kids","📚 Subjects","➕ Lessons","⏰ Commitments","📖 Book Search","🗓️ Weekly Calendar"])
+
+# -------------------------
+# Kids tab
+# -------------------------
+with tabs[0]:
+    st.header("Add a Kid")
+    with st.form("kid_form", clear_on_submit=True):
+        name = st.text_input("Name")
+        age = st.number_input("Age", min_value=3, max_value=18, value=7)
+        submit = st.form_submit_button("Add Kid")
+        if submit and name:
+            add_kid(name, age)
+            st.success(f"Added kid: {name}, age {age}")
+    if st.session_state["kids"]:
+        st.subheader("Existing Kids")
+        for k in st.session_state["kids"]:
+            st.markdown(f"- {k['name']} ({k['age']} yrs)")
+
+# -------------------------
+# Subjects tab
+# -------------------------
+with tabs[1]:
+    st.header("Add a Subject")
+    with st.form("subject_form", clear_on_submit=True):
+        name = st.text_input("Subject Name")
+        duration = st.number_input("Duration (minutes)", value=30, min_value=10)
+        sessions = st.number_input("Sessions per week", value=1, min_value=1)
+        kids_sel = []
+        if st.session_state["kids"]:
+            st.markdown("Assign to Kids:")
+            for k in st.session_state["kids"]:
+                checked = st.checkbox(k["name"], key=f"subj_{name}_{k['id']}")
+                if checked:
+                    kids_sel.append(k["id"])
+        submit = st.form_submit_button("Add Subject")
+        if submit and name:
+            add_subject(name, duration, sessions, kids_sel)
+            st.success(f"Added subject: {name}")
+    if st.session_state["subjects"]:
+        st.subheader("Existing Subjects")
+        for s in st.session_state["subjects"]:
+            kid_names = [k['name'] for k in st.session_state["kids"] if k['id'] in s["kids"]]
+            st.markdown(f"- {s['name']} ({s['duration']} min, {s['sessions_per_week']}x/week) → {', '.join(kid_names)}")
+
+# -------------------------
+# Lessons tab
+# -------------------------
+with tabs[2]:
+    st.header("Add a Lesson")
+    with st.form("lesson_form", clear_on_submit=True):
+        title = st.text_input("Lesson Title")
+        text = st.text_area("Lesson Text")
+        subj_sel = None
+        if st.session_state["subjects"]:
+            subj_sel_name = st.selectbox("Subject (optional)", [s["name"] for s in st.session_state["subjects"]])
+            subj_sel = next((s["id"] for s in st.session_state["subjects"] if s["name"]==subj_sel_name), None)
+        kid_sel = None
+        if st.session_state["kids"]:
+            kid_sel_name = st.selectbox("Kid (optional)", [k["name"] for k in st.session_state["kids"]])
+            kid_sel = next((k["id"] for k in st.session_state["kids"] if k["name"]==kid_sel_name), None)
+        submit = st.form_submit_button("Add Lesson")
+        if submit and title:
+            add_lesson(title, text, subj_sel, kid_sel)
+            st.success(f"Added lesson: {title}")
 
 # -------------------------
 # Commitments tab with clock-style input
@@ -197,13 +260,16 @@ with tabs[4]:
 # -------------------------
 with tabs[5]:
     st.header("Weekly Schedule (Grid)")
-    grid = generate_weekly_grid_schedule()
-    for day, kid_blocks in grid.items():
-        st.subheader(day)
-        for kid_name, events in kid_blocks.items():
-            st.markdown(f"**{kid_name}**")
-            if events:
-                for e in events:
-                    st.markdown(f"- {e['start'].strftime('%H:%M')} - {e['end'].strftime('%H:%M')}: {e['event']}")
-            else:
-                st.markdown("- Free")
+    if st.session_state["kids"] and st.session_state["subjects"]:
+        grid = generate_weekly_grid_schedule()
+        for day, kid_blocks in grid.items():
+            st.subheader(day)
+            for kid_name, events in kid_blocks.items():
+                st.markdown(f"**{kid_name}**")
+                if events:
+                    for e in events:
+                        st.markdown(f"- {e['start'].strftime('%H:%M')} - {e['end'].strftime('%H:%M')}: {e['event']}")
+                else:
+                    st.markdown("- Free")
+    else:
+        st.info("Add kids and subjects to generate schedule.")
