@@ -1,4 +1,4 @@
-```python
+
 import streamlit as st
 import pandas as pd
 from datetime import datetime, timedelta
@@ -275,4 +275,3 @@ if st.button("🎯 Generate Schedule", type="primary"):
         st.dataframe(styled_df, use_container_width=True, height=600)
         
         st.info("💡 Tip: Green cells show scheduled subjects. The ↓ symbol indicates continuation of the session above.")
-```
