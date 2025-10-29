@@ -1,9 +1,33 @@
-
 import streamlit as st
 import pandas as pd
 from datetime import datetime, timedelta
 
 st.set_page_config(page_title="Homeschool Planner", layout="wide")
+
+# Access control
+if 'authenticated' not in st.session_state:
+    st.session_state.authenticated = False
+
+# Valid access codes (you'll add these manually after people pay)
+VALID_CODES = ['DEMO2024', 'TRIAL123']  # Replace with your actual codes
+
+if not st.session_state.authenticated:
+    st.title("🏫 Homeschool Planner")
+    st.write("Welcome! Please enter your access code to continue.")
+    st.write("Don't have a code? [Get access here](https://buy.stripe.com/your-payment-link)")
+    
+    access_code = st.text_input("Access Code", type="password")
+    
+    if st.button("Submit"):
+        if access_code in VALID_CODES:
+            st.session_state.authenticated = True
+            st.rerun()
+        else:
+            st.error("Invalid access code. Please check your email or purchase access.")
+    
+    st.stop()
+
+# Rest of the app (only shows if authenticated)
 
 # Initialize session state
 if 'kids' not in st.session_state:
@@ -273,5 +297,14 @@ if st.button("🎯 Generate Schedule", type="primary"):
         styled_df = df.style.applymap(highlight_cells, subset=df.columns[1:])
         
         st.dataframe(styled_df, use_container_width=True, height=600)
+        
+        # CSV Export
+        csv = df.to_csv(index=False)
+        st.download_button(
+            label="📥 Download Schedule as CSV",
+            data=csv,
+            file_name="homeschool_schedule.csv",
+            mime="text/csv"
+        )
         
         st.info("💡 Tip: Green cells show scheduled subjects. The ↓ symbol indicates continuation of the session above.")
