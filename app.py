@@ -3,32 +3,101 @@ import pandas as pd
 from datetime import datetime
 import json
 
-st.set_page_config(page_title="Homeschool Planner", layout="wide")
+st.set_page_config(page_title="Homeschool Planner", layout="wide", initial_sidebar_state="collapsed")
+
+# Custom CSS for better UX
+st.markdown("""
+<style>
+    .main-header {
+        font-size: 3rem;
+        font-weight: bold;
+        color: #4A90E2;
+        text-align: center;
+        margin-bottom: 2rem;
+    }
+    .sub-header {
+        font-size: 1.5rem;
+        font-weight: 600;
+        color: #2C3E50;
+        margin-top: 2rem;
+        margin-bottom: 1rem;
+        border-bottom: 3px solid #4A90E2;
+        padding-bottom: 0.5rem;
+    }
+    .schedule-cell {
+        padding: 15px;
+        border-radius: 10px;
+        margin: 5px 0;
+        border-left: 5px solid #4A90E2;
+        background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+        color: white;
+        font-weight: 500;
+    }
+    .shared-cell {
+        border-left: 5px solid #48BB78;
+        background: linear-gradient(135deg, #48BB78 0%, #38A169 100%);
+    }
+    .commitment-cell {
+        border-left: 5px solid #F56565;
+        background: linear-gradient(135deg, #F56565 0%, #C53030 100%);
+    }
+    .info-box {
+        background-color: #EBF8FF;
+        padding: 20px;
+        border-radius: 10px;
+        border-left: 5px solid #4299E1;
+        margin: 10px 0;
+    }
+    .success-box {
+        background-color: #F0FFF4;
+        padding: 20px;
+        border-radius: 10px;
+        border-left: 5px solid #48BB78;
+        margin: 10px 0;
+    }
+    .stButton>button {
+        border-radius: 10px;
+        font-weight: 600;
+        transition: all 0.3s;
+    }
+    .preview-container {
+        background: #F7FAFC;
+        padding: 20px;
+        border-radius: 15px;
+        margin-top: 20px;
+        border: 2px dashed #CBD5E0;
+    }
+</style>
+""", unsafe_allow_html=True)
 
 # Access control
 if 'authenticated' not in st.session_state:
     st.session_state.authenticated = False
 
-# Valid access codes
 VALID_CODES = ['DEMO2024', 'TRIAL123']
 
 if not st.session_state.authenticated:
-    st.title("🏫 Homeschool Planner")
-    st.write("Welcome! Please enter your access code to continue.")
-    st.write("Don't have a code? [Get access here](https://buy.stripe.com/your-payment-link)")
+    st.markdown('<div class="main-header">🏫 Homeschool Planner</div>', unsafe_allow_html=True)
     
-    access_code = st.text_input("Access Code", type="password")
-    
-    if st.button("Submit"):
-        if access_code in VALID_CODES:
-            st.session_state.authenticated = True
-            st.rerun()
-        else:
-            st.error("Invalid access code. Please check your email or purchase access.")
+    col1, col2, col3 = st.columns([1,2,1])
+    with col2:
+        st.markdown('<div class="info-box">', unsafe_allow_html=True)
+        st.write("### Welcome! 👋")
+        st.write("Create beautiful, organized schedules for your homeschool family.")
+        st.markdown('</div>', unsafe_allow_html=True)
+        
+        access_code = st.text_input("🔑 Access Code", type="password", placeholder="Enter your code")
+        
+        if st.button("✨ Get Started", use_container_width=True):
+            if access_code in VALID_CODES:
+                st.session_state.authenticated = True
+                st.rerun()
+            else:
+                st.error("❌ Invalid code. [Get access here](https://buy.stripe.com/your-payment-link)")
     
     st.stop()
 
-# Default emoji mapping for subjects
+# Default emoji mapping
 DEFAULT_EMOJI = {
     'math': '🔢', 'reading': '📖', 'writing': '✍️', 'science': '🔬',
     'history': '📜', 'geography': '🌍', 'art': '🎨', 'music': '🎵',
@@ -38,7 +107,6 @@ DEFAULT_EMOJI = {
 }
 
 def get_emoji_for_subject(subject_name):
-    """Get emoji for a subject based on name"""
     name_lower = subject_name.lower()
     for key in DEFAULT_EMOJI:
         if key in name_lower:
@@ -58,322 +126,379 @@ if 'lesson_details' not in st.session_state:
     st.session_state.lesson_details = {}
 if 'lesson_completion' not in st.session_state:
     st.session_state.lesson_completion = {}
+if 'show_preview' not in st.session_state:
+    st.session_state.show_preview = False
 
-st.title("🏫 Homeschool Planner")
+# Header
+st.markdown('<div class="main-header">🏫 Homeschool Planner</div>', unsafe_allow_html=True)
 
-# Tabs for different sections
-tab1, tab2, tab3 = st.tabs(["📝 Setup", "📅 Schedule", "🖨️ Print"])
+# Tabs
+tab1, tab2, tab3 = st.tabs(["📝 Setup & Preview", "📅 Weekly Schedule", "🖨️ Print View"])
+
+def generate_schedule_data(start_time, end_time, block_size, include_weekend, back_to_back, kids_list, valid_subjects, valid_commitments):
+    """Helper function to generate schedule"""
+    start_minutes = start_time.hour * 60 + start_time.minute
+    end_minutes = end_time.hour * 60 + end_time.minute
+    
+    time_slots = []
+    for m in range(start_minutes, end_minutes, block_size):
+        h = m // 60
+        min_val = m % 60
+        time_slots.append(f"{h:02d}:{min_val:02d}")
+    
+    days = ['Monday', 'Tuesday', 'Wednesday', 'Thursday', 'Friday', 'Saturday', 'Sunday'] if include_weekend else ['Monday', 'Tuesday', 'Wednesday', 'Thursday', 'Friday']
+    
+    grid = {}
+    for day in days:
+        grid[day] = {}
+        for kid in kids_list:
+            grid[day][kid] = {time: None for time in time_slots}
+    
+    # Block out commitments
+    for commitment in valid_commitments:
+        day = commitment['day']
+        if day not in grid:
+            continue
+        
+        comm_kids = commitment['kids'] if commitment['kids'] else kids_list
+        blocks_needed = (commitment['duration'] + block_size - 1) // block_size
+        
+        try:
+            start_idx = time_slots.index(commitment['time'])
+            for kid in comm_kids:
+                if kid in kids_list:
+                    for b in range(blocks_needed):
+                        if start_idx + b < len(time_slots):
+                            slot = time_slots[start_idx + b]
+                            grid[day][kid][slot] = {
+                                'subject': commitment['activity'],
+                                'fixed': True,
+                                'isStart': b == 0,
+                                'emoji': '📅'
+                            }
+        except (ValueError, KeyError):
+            pass
+    
+    # Schedule subjects
+    for subject in valid_subjects:
+        subj_kids = subject['kids'] if subject['kids'] else kids_list
+        blocks_needed = (subject['duration'] + block_size - 1) // block_size
+        days_to_use = min(subject['sessions'], len(days))
+        day_interval = max(1, len(days) // days_to_use)
+        
+        sessions_scheduled = 0
+        day_index = 0
+        
+        while sessions_scheduled < subject['sessions'] and day_index < len(days):
+            day = days[day_index]
+            scheduled = False
+            
+            for i in range(len(time_slots) - blocks_needed + 1):
+                available = True
+                for kid in subj_kids:
+                    if kid not in kids_list:
+                        continue
+                    for b in range(blocks_needed):
+                        slot = time_slots[i + b]
+                        if grid[day][kid][slot] is not None:
+                            available = False
+                            break
+                    if not available:
+                        break
+                
+                if available:
+                    for kid in subj_kids:
+                        if kid in kids_list:
+                            for b in range(blocks_needed):
+                                slot = time_slots[i + b]
+                                grid[day][kid][slot] = {
+                                    'subject': subject['name'],
+                                    'shared': len(subj_kids) > 1,
+                                    'isStart': b == 0,
+                                    'emoji': subject.get('emoji', '📚')
+                                }
+                    sessions_scheduled += 1
+                    scheduled = True
+                    break
+            
+            if sessions_scheduled < subject['sessions']:
+                if scheduled and day_interval > 0:
+                    day_index += day_interval
+                else:
+                    day_index += 1
+                
+                if day_index >= len(days) and sessions_scheduled < subject['sessions']:
+                    day_index = (day_index % len(days)) + 1
+            else:
+                break
+    
+    return {'grid': grid, 'time_slots': time_slots, 'days': days, 'kids': kids_list}
 
 with tab1:
-    # Settings Section
-    st.header("⚙️ Settings")
-    col1, col2, col3 = st.columns(3)
-
+    # Settings
+    st.markdown('<div class="sub-header">⚙️ Schedule Settings</div>', unsafe_allow_html=True)
+    
+    col1, col2, col3, col4, col5 = st.columns(5)
     with col1:
-        start_time = st.time_input("Start Time", value=datetime.strptime("08:00", "%H:%M").time())
+        start_time = st.time_input("🌅 Start Time", value=datetime.strptime("08:00", "%H:%M").time())
     with col2:
-        end_time = st.time_input("End Time", value=datetime.strptime("15:00", "%H:%M").time())
+        end_time = st.time_input("🌙 End Time", value=datetime.strptime("15:00", "%H:%M").time())
     with col3:
-        block_size = st.selectbox("Block Size (minutes)", [15, 30, 60], index=1)
-
-    col4, col5 = st.columns(2)
+        block_size = st.selectbox("⏱️ Block Size", [15, 30, 60], index=1, format_func=lambda x: f"{x} min")
     with col4:
-        include_weekend = st.checkbox("Include Weekends")
+        include_weekend = st.checkbox("📅 Weekends", value=False)
     with col5:
-        back_to_back = st.checkbox("Back-to-back Sessions")
+        back_to_back = st.checkbox("🔗 Back-to-back", value=False)
 
-    st.divider()
-
-    # Children Section
-    st.header("👨‍👩‍👧‍👦 Children")
-
+    # Children
+    st.markdown('<div class="sub-header">👨‍👩‍👧‍👦 Children</div>', unsafe_allow_html=True)
+    
+    cols = st.columns(4)
     for i, kid in enumerate(st.session_state.kids):
-        col1, col2 = st.columns([4, 1])
-        with col1:
-            st.session_state.kids[i] = st.text_input(f"Child {i+1}", value=kid, key=f"kid_{i}")
-        with col2:
-            if len(st.session_state.kids) > 1:
-                if st.button("🗑️", key=f"remove_kid_{i}"):
+        with cols[i % 4]:
+            col_input, col_btn = st.columns([4, 1])
+            with col_input:
+                st.session_state.kids[i] = st.text_input(f"Child {i+1}", value=kid, key=f"kid_{i}", label_visibility="collapsed", placeholder=f"Child {i+1} name")
+            with col_btn:
+                if len(st.session_state.kids) > 1 and st.button("🗑️", key=f"rm_kid_{i}"):
                     st.session_state.kids.pop(i)
                     st.rerun()
-
-    if st.button("➕ Add Child"):
+    
+    if st.button("➕ Add Child", use_container_width=False):
         st.session_state.kids.append('')
         st.rerun()
 
-    st.divider()
-
-    # Subjects Section
-    st.header("📚 Subjects")
-
     kids_list = [k for k in st.session_state.kids if k.strip()]
 
+    # Subjects
+    st.markdown('<div class="sub-header">📚 Subjects</div>', unsafe_allow_html=True)
+    
     for i, subject in enumerate(st.session_state.subjects):
-        with st.expander(f"Subject {i+1}: {subject.get('emoji', '📚')} {subject['name'] or 'New Subject'}", expanded=not subject['name']):
-            col1, col2, col3 = st.columns([3, 1, 1])
+        with st.container():
+            emoji_display = subject.get('emoji', '📚')
+            name_display = subject['name'] or 'New Subject'
+            
+            col1, col2 = st.columns([5, 1])
             with col1:
-                st.session_state.subjects[i]['name'] = st.text_input("Subject Name", value=subject['name'], key=f"subj_name_{i}")
+                st.markdown(f"**{emoji_display} {name_display}**")
             with col2:
-                # Auto-detect emoji when name changes
-                if subject['name']:
-                    detected_emoji = get_emoji_for_subject(subject['name'])
-                    st.session_state.subjects[i]['emoji'] = st.text_input("Icon", value=subject.get('emoji', detected_emoji), key=f"subj_emoji_{i}", max_chars=2)
-                else:
-                    st.session_state.subjects[i]['emoji'] = st.text_input("Icon", value=subject.get('emoji', '📚'), key=f"subj_emoji_{i}", max_chars=2)
-            with col3:
-                if st.button("🗑️", key=f"remove_subj_{i}"):
+                if st.button("🗑️", key=f"rm_subj_{i}"):
                     st.session_state.subjects.pop(i)
                     st.rerun()
             
-            col4, col5 = st.columns(2)
-            with col4:
-                st.session_state.subjects[i]['sessions'] = st.number_input("Sessions per week", min_value=1, value=subject['sessions'], key=f"subj_sess_{i}")
-            with col5:
-                st.session_state.subjects[i]['duration'] = st.number_input("Duration (minutes)", min_value=15, step=15, value=subject['duration'], key=f"subj_dur_{i}")
+            col_name, col_emoji, col_sessions, col_duration = st.columns([3, 1, 1, 1])
+            with col_name:
+                new_name = st.text_input("Subject", value=subject['name'], key=f"subj_name_{i}", label_visibility="collapsed", placeholder="Subject name")
+                st.session_state.subjects[i]['name'] = new_name
+                if new_name and not subject.get('emoji_set'):
+                    st.session_state.subjects[i]['emoji'] = get_emoji_for_subject(new_name)
+            with col_emoji:
+                new_emoji = st.text_input("Icon", value=subject.get('emoji', '📚'), key=f"subj_emoji_{i}", max_chars=2, label_visibility="collapsed")
+                st.session_state.subjects[i]['emoji'] = new_emoji
+                st.session_state.subjects[i]['emoji_set'] = True
+            with col_sessions:
+                st.session_state.subjects[i]['sessions'] = st.number_input("Sessions/wk", min_value=1, value=subject['sessions'], key=f"subj_sess_{i}", label_visibility="collapsed")
+            with col_duration:
+                st.session_state.subjects[i]['duration'] = st.number_input("Duration", min_value=15, step=15, value=subject['duration'], key=f"subj_dur_{i}", label_visibility="collapsed")
             
             if kids_list:
-                st.write("Which children? (leave empty for all)")
+                st.write("👥 Children:")
                 selected_kids = []
-                cols = st.columns(min(len(kids_list), 4))
+                kid_cols = st.columns(min(len(kids_list), 5))
                 for idx, kid in enumerate(kids_list):
-                    with cols[idx % len(cols)]:
+                    with kid_cols[idx % len(kid_cols)]:
                         if st.checkbox(kid, value=kid in subject['kids'], key=f"subj_{i}_kid_{kid}"):
                             selected_kids.append(kid)
                 st.session_state.subjects[i]['kids'] = selected_kids
-
-    if st.button("➕ Add Subject"):
+            
+            st.divider()
+    
+    if st.button("➕ Add Subject", use_container_width=False):
         st.session_state.subjects.append({'name': '', 'sessions': 3, 'duration': 60, 'kids': [], 'emoji': '📚'})
         st.rerun()
 
-    st.divider()
-
-    # Fixed Commitments Section
-    st.header("📅 Fixed Commitments")
-
+    # Commitments
+    st.markdown('<div class="sub-header">📅 Fixed Commitments</div>', unsafe_allow_html=True)
+    
     for i, commitment in enumerate(st.session_state.commitments):
-        with st.expander(f"Commitment {i+1}: {commitment['activity'] or 'New Commitment'}", expanded=not commitment['activity']):
-            col1, col2, col3, col4 = st.columns([2, 2, 2, 1])
+        with st.container():
+            col1, col2 = st.columns([5, 1])
             with col1:
-                st.session_state.commitments[i]['day'] = st.selectbox("Day", 
-                    ["Monday", "Tuesday", "Wednesday", "Thursday", "Friday", "Saturday", "Sunday"],
-                    index=["Monday", "Tuesday", "Wednesday", "Thursday", "Friday", "Saturday", "Sunday"].index(commitment['day']),
-                    key=f"comm_day_{i}")
+                st.markdown(f"**{commitment['activity'] or 'New Commitment'}**")
             with col2:
-                time_val = datetime.strptime(commitment['time'], "%H:%M").time()
-                new_time = st.time_input("Start Time", value=time_val, key=f"comm_time_{i}")
-                st.session_state.commitments[i]['time'] = new_time.strftime("%H:%M")
-            with col3:
-                st.session_state.commitments[i]['duration'] = st.number_input("Duration (min)", min_value=15, step=15, value=commitment['duration'], key=f"comm_dur_{i}")
-            with col4:
-                if st.button("🗑️", key=f"remove_comm_{i}"):
+                if st.button("🗑️", key=f"rm_comm_{i}"):
                     st.session_state.commitments.pop(i)
                     st.rerun()
             
-            st.session_state.commitments[i]['activity'] = st.text_input("Activity Name", value=commitment['activity'], key=f"comm_act_{i}")
+            col_day, col_time, col_dur, col_activity = st.columns([2, 2, 1, 3])
+            with col_day:
+                st.session_state.commitments[i]['day'] = st.selectbox("Day", 
+                    ["Monday", "Tuesday", "Wednesday", "Thursday", "Friday", "Saturday", "Sunday"],
+                    index=["Monday", "Tuesday", "Wednesday", "Thursday", "Friday", "Saturday", "Sunday"].index(commitment['day']),
+                    key=f"comm_day_{i}", label_visibility="collapsed")
+            with col_time:
+                time_val = datetime.strptime(commitment['time'], "%H:%M").time()
+                new_time = st.time_input("Time", value=time_val, key=f"comm_time_{i}", label_visibility="collapsed")
+                st.session_state.commitments[i]['time'] = new_time.strftime("%H:%M")
+            with col_dur:
+                st.session_state.commitments[i]['duration'] = st.number_input("Duration", min_value=15, step=15, value=commitment['duration'], key=f"comm_dur_{i}", label_visibility="collapsed")
+            with col_activity:
+                st.session_state.commitments[i]['activity'] = st.text_input("Activity", value=commitment['activity'], key=f"comm_act_{i}", label_visibility="collapsed", placeholder="Activity name")
             
             if kids_list:
-                st.write("Which children? (leave empty for all)")
+                st.write("👥 Children:")
                 selected_kids = []
-                cols = st.columns(min(len(kids_list), 4))
+                kid_cols = st.columns(min(len(kids_list), 5))
                 for idx, kid in enumerate(kids_list):
-                    with cols[idx % len(cols)]:
+                    with kid_cols[idx % len(kid_cols)]:
                         if st.checkbox(kid, value=kid in commitment.get('kids', []), key=f"comm_{i}_kid_{kid}"):
                             selected_kids.append(kid)
                 st.session_state.commitments[i]['kids'] = selected_kids
-
-    if st.button("➕ Add Commitment"):
+            
+            st.divider()
+    
+    if st.button("➕ Add Commitment", use_container_width=False):
         st.session_state.commitments.append({'day': 'Monday', 'time': '14:00', 'duration': 60, 'activity': '', 'kids': []})
         st.rerun()
 
-    st.divider()
-
-    # Generate Schedule Button
-    if st.button("🎯 Generate Schedule", type="primary"):
-        kids_list = [k for k in st.session_state.kids if k.strip()]
+    st.markdown("---")
+    
+    # Generate buttons
+    col1, col2 = st.columns(2)
+    with col1:
+        if st.button("👀 Preview Schedule", type="secondary", use_container_width=True):
+            st.session_state.show_preview = True
+            st.rerun()
+    with col2:
+        if st.button("🎯 Generate Full Schedule", type="primary", use_container_width=True):
+            valid_subjects = [s for s in st.session_state.subjects if s['name'].strip()]
+            valid_commitments = [c for c in st.session_state.commitments if c['activity'].strip()]
+            
+            if not kids_list or not valid_subjects:
+                st.error("❌ Please add at least one child and one subject")
+            else:
+                st.session_state.generated_schedule = generate_schedule_data(
+                    start_time, end_time, block_size, include_weekend, back_to_back,
+                    kids_list, valid_subjects, valid_commitments
+                )
+                st.session_state.show_preview = False
+                st.success("✅ Schedule generated! Go to 'Weekly Schedule' tab")
+                st.rerun()
+    
+    # Preview section
+    if st.session_state.show_preview and kids_list:
+        st.markdown('<div class="preview-container">', unsafe_allow_html=True)
+        st.markdown("### 👀 Quick Preview")
+        
         valid_subjects = [s for s in st.session_state.subjects if s['name'].strip()]
         valid_commitments = [c for c in st.session_state.commitments if c['activity'].strip()]
         
-        if not kids_list or not valid_subjects:
-            st.error("Please add at least one child and one subject")
-        else:
-            # Generate time slots
-            start_minutes = start_time.hour * 60 + start_time.minute
-            end_minutes = end_time.hour * 60 + end_time.minute
+        if valid_subjects:
+            preview_schedule = generate_schedule_data(
+                start_time, end_time, block_size, include_weekend, back_to_back,
+                kids_list, valid_subjects, valid_commitments
+            )
             
-            time_slots = []
-            for m in range(start_minutes, end_minutes, block_size):
-                h = m // 60
-                min_val = m % 60
-                time_slots.append(f"{h:02d}:{min_val:02d}")
+            # Show summary
+            st.write(f"**{len(kids_list)} children** • **{len(valid_subjects)} subjects** • **{len(preview_schedule['days'])} days**")
             
-            # Days of week
-            days = ['Monday', 'Tuesday', 'Wednesday', 'Thursday', 'Friday', 'Saturday', 'Sunday'] if include_weekend else ['Monday', 'Tuesday', 'Wednesday', 'Thursday', 'Friday']
-            
-            # Initialize schedule grid
-            grid = {}
-            for day in days:
-                grid[day] = {}
-                for kid in kids_list:
-                    grid[day][kid] = {time: None for time in time_slots}
-            
-            # Block out fixed commitments with duration
-            for commitment in valid_commitments:
-                day = commitment['day']
-                if day not in grid:
-                    continue
+            # Show first day as example
+            if preview_schedule['days']:
+                first_day = preview_schedule['days'][0]
+                st.write(f"**Sample: {first_day}**")
                 
-                comm_kids = commitment['kids'] if commitment['kids'] else kids_list
-                blocks_needed = (commitment['duration'] + block_size - 1) // block_size
-                
-                try:
-                    start_idx = time_slots.index(commitment['time'])
-                    for kid in comm_kids:
-                        if kid in kids_list:
-                            for b in range(blocks_needed):
-                                if start_idx + b < len(time_slots):
-                                    slot = time_slots[start_idx + b]
-                                    grid[day][kid][slot] = {
-                                        'subject': commitment['activity'],
-                                        'fixed': True,
-                                        'isStart': b == 0,
-                                        'emoji': '📅'
-                                    }
-                except (ValueError, KeyError):
-                    pass
-            
-            # Schedule subjects with distribution
-            subject_emoji_map = {s['name']: s.get('emoji', '📚') for s in valid_subjects}
-            
-            for subject in valid_subjects:
-                subj_kids = subject['kids'] if subject['kids'] else kids_list
-                blocks_needed = (subject['duration'] + block_size - 1) // block_size
-                days_to_use = min(subject['sessions'], len(days))
-                day_interval = max(1, len(days) // days_to_use)
-                
-                sessions_scheduled = 0
-                day_index = 0
-                
-                while sessions_scheduled < subject['sessions'] and day_index < len(days):
-                    day = days[day_index]
-                    scheduled = False
-                    
-                    for i in range(len(time_slots) - blocks_needed + 1):
-                        # Check availability
-                        available = True
-                        for kid in subj_kids:
-                            if kid not in kids_list:
-                                continue
-                            for b in range(blocks_needed):
-                                slot = time_slots[i + b]
-                                if grid[day][kid][slot] is not None:
-                                    available = False
-                                    break
-                            if not available:
-                                break
-                        
-                        if available:
-                            # Schedule session
-                            for kid in subj_kids:
-                                if kid in kids_list:
-                                    for b in range(blocks_needed):
-                                        slot = time_slots[i + b]
-                                        grid[day][kid][slot] = {
-                                            'subject': subject['name'],
-                                            'shared': len(subj_kids) > 1,
-                                            'isStart': b == 0,
-                                            'emoji': subject.get('emoji', '📚')
-                                        }
-                            sessions_scheduled += 1
-                            scheduled = True
-                            break
-                    
-                    # Move to next day
-                    if sessions_scheduled < subject['sessions']:
-                        if scheduled and day_interval > 0:
-                            day_index += day_interval
-                        else:
-                            day_index += 1
-                        
-                        if day_index >= len(days) and sessions_scheduled < subject['sessions']:
-                            day_index = (day_index % len(days)) + 1
+                for kid in kids_list[:2]:  # Show max 2 kids in preview
+                    st.write(f"*{kid}:*")
+                    lessons = []
+                    for time in preview_schedule['time_slots']:
+                        cell = preview_schedule['grid'][first_day][kid][time]
+                        if cell and cell['isStart']:
+                            lessons.append(f"{cell.get('emoji', '📚')} {cell['subject']} ({time})")
+                    if lessons:
+                        st.write(" • ".join(lessons))
                     else:
-                        break
-            
-            st.session_state.generated_schedule = {
-                'grid': grid,
-                'time_slots': time_slots,
-                'days': days,
-                'kids': kids_list
-            }
-            
-            st.success("Schedule Generated! Go to the 'Schedule' tab to view and add lesson details.")
+                        st.write("_No lessons_")
+                
+                if len(kids_list) > 2:
+                    st.write(f"_...and {len(kids_list)-2} more children_")
+        
+        st.markdown('</div>', unsafe_allow_html=True)
 
 with tab2:
     if st.session_state.generated_schedule is None:
-        st.info("👈 Please generate a schedule in the Setup tab first")
+        st.markdown('<div class="info-box">👈 Generate a schedule in the Setup tab first</div>', unsafe_allow_html=True)
     else:
         schedule = st.session_state.generated_schedule
-        st.header("📆 Weekly Schedule")
-        st.write("Click on any lesson to add details, links, or mark as complete")
+        st.markdown('<div class="sub-header">📆 Your Weekly Schedule</div>', unsafe_allow_html=True)
+        st.write("Click on any lesson to add details, resources, and track completion")
         
-        # Display schedule with clickable cells
-        for day in schedule['days']:
-            st.subheader(day)
-            
-            for time in schedule['time_slots']:
-                cols = st.columns([1] + [3] * len(schedule['kids']))
-                cols[0].write(f"**{time}**")
+        # Day selector
+        selected_day = st.selectbox("Select Day", schedule['days'], key="day_selector")
+        
+        st.markdown(f"### {selected_day}")
+        
+        # Create columns for each kid
+        kid_columns = st.columns(len(schedule['kids']))
+        
+        for kid_idx, kid in enumerate(schedule['kids']):
+            with kid_columns[kid_idx]:
+                st.markdown(f"**👤 {kid}**")
                 
-                for kid_idx, kid in enumerate(schedule['kids']):
-                    cell = schedule['grid'][day][kid][time]
+                for time in schedule['time_slots']:
+                    cell = schedule['grid'][selected_day][kid][time]
                     
                     if cell and cell['isStart']:
-                        lesson_key = f"{day}_{kid}_{time}_{cell['subject']}"
-                        
-                        # Display lesson with emoji
+                        lesson_key = f"{selected_day}_{kid}_{time}_{cell['subject']}"
                         emoji = cell.get('emoji', '📚')
-                        display_text = f"{emoji} {cell['subject']}"
                         
-                        with cols[kid_idx + 1]:
-                            with st.expander(display_text):
-                                st.write(f"**Child:** {kid}")
-                                st.write(f"**Time:** {time}")
-                                
-                                # Lesson details
-                                details = st.session_state.lesson_details.get(lesson_key, {'notes': '', 'link': ''})
-                                
-                                notes = st.text_area("Lesson notes", value=details.get('notes', ''), 
-                                                    key=f"notes_{lesson_key}", 
-                                                    placeholder="e.g., Pages 47-49, Do worksheet 3")
-                                link = st.text_input("Resource link", value=details.get('link', ''), 
-                                                    key=f"link_{lesson_key}",
-                                                    placeholder="https://...")
-                                
-                                if st.button("Save", key=f"save_{lesson_key}"):
+                        # Determine cell style
+                        if cell.get('fixed'):
+                            cell_class = "commitment-cell"
+                        elif cell.get('shared'):
+                            cell_class = "shared-cell"
+                        else:
+                            cell_class = "schedule-cell"
+                        
+                        with st.expander(f"{emoji} {cell['subject']} - {time}"):
+                            details = st.session_state.lesson_details.get(lesson_key, {'notes': '', 'link': ''})
+                            
+                            notes = st.text_area("📝 Lesson Notes", value=details.get('notes', ''), 
+                                                key=f"notes_{lesson_key}", 
+                                                placeholder="e.g., Pages 47-49, worksheet 3",
+                                                height=80)
+                            link = st.text_input("🔗 Resource Link", value=details.get('link', ''), 
+                                                key=f"link_{lesson_key}",
+                                                placeholder="https://youtube.com/...")
+                            
+                            col_save, col_complete = st.columns(2)
+                            with col_save:
+                                if st.button("💾 Save", key=f"save_{lesson_key}", use_container_width=True):
                                     st.session_state.lesson_details[lesson_key] = {
                                         'notes': notes,
                                         'link': link
                                     }
                                     st.success("Saved!")
-                                
-                                # Show saved details
-                                if details.get('notes'):
-                                    st.info(f"📝 {details['notes']}")
-                                if details.get('link'):
-                                    st.info(f"🔗 [{details['link']}]({details['link']})")
-                                
-                                # Completion checkbox
+                            
+                            with col_complete:
                                 completed = st.session_state.lesson_completion.get(lesson_key, False)
-                                if st.checkbox("Mark as complete", value=completed, key=f"complete_{lesson_key}"):
+                                if st.checkbox("✅ Done", value=completed, key=f"complete_{lesson_key}"):
                                     st.session_state.lesson_completion[lesson_key] = True
                                 else:
                                     st.session_state.lesson_completion[lesson_key] = False
+                            
+                            if details.get('notes') or details.get('link'):
+                                st.markdown("---")
+                                if details.get('notes'):
+                                    st.info(f"📝 {details['notes']}")
+                                if details.get('link'):
+                                    st.markdown(f"🔗 [Open Resource]({details['link']})")
                     
                     elif cell and not cell['isStart']:
-                        cols[kid_idx + 1].write("↓")
+                        st.write("⬇️")
         
-        # CSV Export
-        st.divider()
+        st.markdown("---")
+        
+        # Export
         schedule_data = []
         for time in schedule['time_slots']:
             row = {'Time': time}
@@ -393,61 +518,52 @@ with tab2:
         df = pd.DataFrame(schedule_data)
         csv = df.to_csv(index=False)
         st.download_button(
-            label="📥 Download Full Schedule as CSV",
+            label="📥 Download Full Schedule (CSV)",
             data=csv,
             file_name="homeschool_schedule.csv",
-            mime="text/csv"
+            mime="text/csv",
+            use_container_width=True
         )
 
 with tab3:
     if st.session_state.generated_schedule is None:
-        st.info("👈 Please generate a schedule in the Setup tab first")
+        st.markdown('<div class="info-box">👈 Generate a schedule in the Setup tab first</div>', unsafe_allow_html=True)
     else:
         schedule = st.session_state.generated_schedule
-        st.header("🖨️ Print Individual Schedules")
+        st.markdown('<div class="sub-header">🖨️ Print Individual Schedules</div>', unsafe_allow_html=True)
         
-        selected_kid = st.selectbox("Select child to print", schedule['kids'])
+        selected_kid = st.selectbox("👤 Select child to print", schedule['kids'])
         
-        if st.button("Generate Print View"):
-            st.subheader(f"📋 {selected_kid}'s Weekly Schedule")
+        if st.button("📄 Generate Print View", use_container_width=True):
+            st.markdown(f"## 📋 {selected_kid}'s Weekly Schedule")
             
-            print_data = []
             for day in schedule['days']:
-                st.write(f"### {day}")
-                day_lessons = []
+                st.markdown(f"### {day}")
                 
+                has_lessons = False
                 for time in schedule['time_slots']:
                     cell = schedule['grid'][day][selected_kid][time]
                     if cell and cell['isStart']:
+                        has_lessons = True
                         lesson_key = f"{day}_{selected_kid}_{time}_{cell['subject']}"
                         details = st.session_state.lesson_details.get(lesson_key, {})
                         emoji = cell.get('emoji', '📚')
                         
-                        lesson_info = {
-                            'Time': time,
-                            'Subject': f"{emoji} {cell['subject']}",
-                            'Details': details.get('notes', ''),
-                            'Link': details.get('link', ''),
-                            'Done': '☐'
-                        }
-                        day_lessons.append(lesson_info)
-                
-                if day_lessons:
-                    for lesson in day_lessons:
-                        col1, col2, col3 = st.columns([1, 3, 1])
+                        col1, col2, col3 = st.columns([1, 4, 1])
                         with col1:
-                            st.write(f"**{lesson['Time']}**")
+                            st.markdown(f"**{time}**")
                         with col2:
-                            st.write(f"**{lesson['Subject']}**")
-                            if lesson['Details']:
-                                st.write(f"_{lesson['Details']}_")
-                            if lesson['Link']:
-                                st.write(f"🔗 [Link]({lesson['Link']})")
+                            st.markdown(f"**{emoji} {cell['subject']}**")
+                            if details.get('notes'):
+                                st.write(f"_{details['notes']}_")
+                            if details.get('link'):
+                                st.write(f"🔗 [Resource Link]({details['link']})")
                         with col3:
-                            st.write("☐")
-                else:
+                            st.markdown("☐")
+                
+                if not has_lessons:
                     st.write("_No lessons scheduled_")
                 
-                st.divider()
+                st.markdown("---")
             
-            st.info("💡 Use your browser's print function (Ctrl+P or Cmd+P) to print this page")
+            st.info("💡 Use Ctrl+P (or Cmd+P on Mac) to print this page")
