@@ -589,9 +589,15 @@ with tab3:
         st.markdown('<div class="sub-header">🖨️ Print Individual Schedules</div>', unsafe_allow_html=True)
         
         selected_kid = st.selectbox("👤 Select child to print", schedule['kids'])
-        selected_print_day = st.selectbox("📅 Select day to print", schedule['days'], key="print_day_selector")
         
-        if st.button("📄 Generate Print View", use_container_width=True):
+        col1, col2 = st.columns(2)
+        with col1:
+            print_mode = st.radio("Print view", ["Single Day", "Full Week"], horizontal=True)
+        with col2:
+            if print_mode == "Single Day":
+                selected_print_day = st.selectbox("📅 Select day", schedule['days'], key="print_day_selector")
+        
+        if st.button("📄 Generate Print View", use_container_width=True, type="primary"):
             # Card-based planner style
             st.markdown(f"""
             <style>
@@ -721,95 +727,112 @@ with tab3:
             </style>
             """, unsafe_allow_html=True)
             
+            # Determine which days to show
+            days_to_print = [selected_print_day] if print_mode == "Single Day" else schedule['days']
+            
             st.markdown(f"""
             <div class="print-container">
                 <div class="print-header">
                     <h1>📋 {selected_kid}'s Schedule</h1>
-                    <h2>{selected_print_day}</h2>
+                    <h2>{selected_print_day if print_mode == "Single Day" else "Full Week"}</h2>
                 </div>
-                <div class="timeline">
             """, unsafe_allow_html=True)
             
-            # Get all lessons for this day/kid
-            lessons_with_times = []
-            for time in schedule['time_slots']:
-                cell = schedule['grid'][selected_print_day][selected_kid][time]
-                if cell and cell['isStart']:
-                    lesson_key = f"{selected_print_day}_{selected_kid}_{time}_{cell['subject']}"
-                    details = st.session_state.lesson_details.get(lesson_key, {})
-                    
-                    # Calculate duration in minutes
-                    duration_blocks = 1
-                    time_idx = schedule['time_slots'].index(time)
-                    for i in range(time_idx + 1, len(schedule['time_slots'])):
-                        next_cell = schedule['grid'][selected_print_day][selected_kid][schedule['time_slots'][i]]
-                        if next_cell and next_cell.get('subject') == cell['subject'] and not next_cell.get('isStart'):
-                            duration_blocks += 1
-                        else:
-                            break
-                    
-                    lessons_with_times.append({
-                        'time': time,
-                        'time_idx': time_idx,
-                        'cell': cell,
-                        'details': details,
-                        'duration': duration_blocks * (end_time.hour * 60 + end_time.minute - start_time.hour * 60 - start_time.minute) // len(schedule['time_slots'])
-                    })
-            
-            if not lessons_with_times:
-                st.markdown('<div class="no-lessons">No lessons scheduled for this day</div>', unsafe_allow_html=True)
-            else:
-                last_end_time = None
+            for day in days_to_print:
+                if print_mode == "Full Week":
+                    st.markdown(f'<h3 style="color: #667eea; margin-top: 30px; margin-bottom: 20px;">{day}</h3>', unsafe_allow_html=True)
                 
-                for lesson in lessons_with_times:
-                    # Check for break
-                    if last_end_time is not None:
-                        current_start_idx = lesson['time_idx']
-                        if current_start_idx > last_end_time:
-                            break_minutes = (current_start_idx - last_end_time) * (end_time.hour * 60 + end_time.minute - start_time.hour * 60 - start_time.minute) // len(schedule['time_slots'])
-                            st.markdown(f'<div class="break-block">☕ Break ({break_minutes} min)</div>', unsafe_allow_html=True)
-                    
-                    # Determine card class
-                    card_class = ""
-                    if lesson['cell'].get('fixed'):
-                        card_class = "commitment"
-                    elif lesson['cell'].get('shared'):
-                        card_class = "shared"
-                    
-                    emoji = lesson['cell'].get('emoji', '📚')
-                    subject = lesson['cell']['subject']
-                    
-                    details_html = ""
-                    if lesson['details'].get('notes'):
-                        details_html += f"<div>📝 {lesson['details']['notes']}</div>"
-                    if lesson['details'].get('link'):
-                        link_display = lesson['details']['link'][:50] + "..." if len(lesson['details']['link']) > 50 else lesson['details']['link']
-                        details_html += f"<div>🔗 {link_display}</div>"
-                    
-                    if details_html:
-                        details_html = f'<div class="lesson-details">{details_html}</div>'
-                    
-                    st.markdown(f"""
-                    <div class="time-block">
-                        <div class="time-dot"></div>
-                        <div class="time-label">{lesson['time']}</div>
-                        <div class="lesson-card {card_class}">
-                            <div class="lesson-header">
-                                <div class="lesson-title">
-                                    <span class="lesson-emoji">{emoji}</span>
-                                    <span>{subject}</span>
-                                </div>
-                                <div class="lesson-duration">{lesson['duration']} min</div>
-                            </div>
-                            {details_html}
-                            <div class="checkbox">☐</div>
-                        </div>
-                    </div>
-                    """, unsafe_allow_html=True)
-                    
-                    last_end_time = lesson['time_idx'] + (lesson['duration'] // ((end_time.hour * 60 + end_time.minute - start_time.hour * 60 - start_time.minute) // len(schedule['time_slots'])))
+                st.markdown('<div class="timeline">', unsafe_allow_html=True)
             
-            st.markdown('</div></div>', unsafe_allow_html=True)
+                # Get all lessons for this day/kid
+                lessons_with_times = []
+                for time in schedule['time_slots']:
+                    cell = schedule['grid'][day][selected_kid][time]
+                    if cell and cell['isStart']:
+                        lesson_key = f"{day}_{selected_kid}_{time}_{cell['subject']}"
+                        details = st.session_state.lesson_details.get(lesson_key, {})
+                        
+                        # Calculate duration in minutes
+                        duration_blocks = 1
+                        time_idx = schedule['time_slots'].index(time)
+                        for i in range(time_idx + 1, len(schedule['time_slots'])):
+                            next_cell = schedule['grid'][day][selected_kid][schedule['time_slots'][i]]
+                            if next_cell and next_cell.get('subject') == cell['subject'] and not next_cell.get('isStart'):
+                                duration_blocks += 1
+                            else:
+                                break
+                        
+                        lessons_with_times.append({
+                            'time': time,
+                            'time_idx': time_idx,
+                            'cell': cell,
+                            'details': details,
+                            'duration': duration_blocks * (end_time.hour * 60 + end_time.minute - start_time.hour * 60 - start_time.minute) // len(schedule['time_slots'])
+                        })
+                
+                if not lessons_with_times:
+                    st.markdown('<div class="no-lessons">No lessons scheduled for this day</div>', unsafe_allow_html=True)
+                else:
+                    last_end_time = None
+                    
+                    for lesson in lessons_with_times:
+                        # Check for break
+                        if last_end_time is not None:
+                            current_start_idx = lesson['time_idx']
+                            if current_start_idx > last_end_time:
+                                break_minutes = (current_start_idx - last_end_time) * (end_time.hour * 60 + end_time.minute - start_time.hour * 60 - start_time.minute) // len(schedule['time_slots'])
+                                st.markdown(f'<div class="break-block">☕ Break ({break_minutes} min)</div>', unsafe_allow_html=True)
+                        
+                        # Determine card class
+                        card_class = ""
+                        if lesson['cell'].get('fixed'):
+                            card_class = "commitment"
+                        elif lesson['cell'].get('shared'):
+                            card_class = "shared"
+                        
+                        emoji = lesson['cell'].get('emoji', '📚')
+                        subject = lesson['cell']['subject']
+                        
+                        # Build details HTML with proper escaping
+                        details_parts = []
+                        if lesson['details'].get('notes'):
+                            notes_text = lesson['details']['notes'].replace('<', '&lt;').replace('>', '&gt;')
+                            details_parts.append(f"<div>📝 {notes_text}</div>")
+                        if lesson['details'].get('link'):
+                            link = lesson['details']['link']
+                            link_display = link[:50] + "..." if len(link) > 50 else link
+                            details_parts.append(f'<div>🔗 <a href="{link}" style="color: white; text-decoration: underline;" target="_blank">{link_display}</a></div>')
+                        
+                        details_html = ""
+                        if details_parts:
+                            details_html = f'<div class="lesson-details">{"".join(details_parts)}</div>'
+                        
+                        st.markdown(f"""
+                        <div class="time-block">
+                            <div class="time-dot"></div>
+                            <div class="time-label">{lesson['time']}</div>
+                            <div class="lesson-card {card_class}">
+                                <div class="lesson-header">
+                                    <div class="lesson-title">
+                                        <span class="lesson-emoji">{emoji}</span>
+                                        <span>{subject}</span>
+                                    </div>
+                                    <div class="lesson-duration">{lesson['duration']} min</div>
+                                </div>
+                                {details_html}
+                                <div class="checkbox">☐</div>
+                            </div>
+                        </div>
+                        """, unsafe_allow_html=True)
+                        
+                        last_end_time = lesson['time_idx'] + (lesson['duration'] // ((end_time.hour * 60 + end_time.minute - start_time.hour * 60 - start_time.minute) // len(schedule['time_slots'])))
+                
+                st.markdown('</div>', unsafe_allow_html=True)
+                
+                if print_mode == "Full Week" and day != days_to_print[-1]:
+                    st.markdown('<div style="page-break-after: always;"></div>', unsafe_allow_html=True)
+            
+            st.markdown('</div>', unsafe_allow_html=True)
             
             st.markdown("---")
             st.info("💡 Use Ctrl+P (or Cmd+P on Mac) to print this beautiful schedule!")
