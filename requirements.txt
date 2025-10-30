@@ -5,3 +5,4 @@ openai
 requests
 numpy
 scikit-learn
+reportlab
