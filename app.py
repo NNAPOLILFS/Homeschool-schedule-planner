@@ -8,6 +8,9 @@ st.set_page_config(page_title="Homeschool Planner", layout="wide", initial_sideb
 # Custom CSS for better UX
 st.markdown("""
 <style>
+    .main {
+        background-color: #F7FAFC;
+    }
     .main-header {
         font-size: 3rem;
         font-weight: bold;
@@ -23,23 +26,6 @@ st.markdown("""
         margin-bottom: 1rem;
         border-bottom: 3px solid #4A90E2;
         padding-bottom: 0.5rem;
-    }
-    .schedule-cell {
-        padding: 15px;
-        border-radius: 10px;
-        margin: 5px 0;
-        border-left: 5px solid #4A90E2;
-        background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
-        color: white;
-        font-weight: 500;
-    }
-    .shared-cell {
-        border-left: 5px solid #48BB78;
-        background: linear-gradient(135deg, #48BB78 0%, #38A169 100%);
-    }
-    .commitment-cell {
-        border-left: 5px solid #F56565;
-        background: linear-gradient(135deg, #F56565 0%, #C53030 100%);
     }
     .info-box {
         background-color: #EBF8FF;
@@ -61,7 +47,7 @@ st.markdown("""
         transition: all 0.3s;
     }
     .preview-container {
-        background: #F7FAFC;
+        background: white;
         padding: 20px;
         border-radius: 15px;
         margin-top: 20px;
@@ -81,11 +67,14 @@ if not st.session_state.authenticated:
     
     col1, col2, col3 = st.columns([1,2,1])
     with col2:
-        st.markdown('<div class="info-box">', unsafe_allow_html=True)
-        st.write("### Welcome! 👋")
-        st.write("Create beautiful, organized schedules for your homeschool family.")
-        st.markdown('</div>', unsafe_allow_html=True)
+        st.markdown("""
+        <div style="background: white; padding: 30px; border-radius: 15px; box-shadow: 0 4px 6px rgba(0,0,0,0.1);">
+            <h3 style="color: #2C3E50;">Welcome! 👋</h3>
+            <p style="color: #4A5568;">Create beautiful, organized schedules for your homeschool family.</p>
+        </div>
+        """, unsafe_allow_html=True)
         
+        st.write("")
         access_code = st.text_input("🔑 Access Code", type="password", placeholder="Enter your code")
         
         if st.button("✨ Get Started", use_container_width=True):
@@ -807,7 +796,7 @@ with tab3:
                         if details_parts:
                             details_html = f'<div class="lesson-details">{"".join(details_parts)}</div>'
                         
-                        st.markdown(f"""
+                        lesson_html = f"""
                         <div class="time-block">
                             <div class="time-dot"></div>
                             <div class="time-label">{lesson['time']}</div>
@@ -823,7 +812,8 @@ with tab3:
                                 <div class="checkbox">☐</div>
                             </div>
                         </div>
-                        """, unsafe_allow_html=True)
+                        """
+                        st.markdown(lesson_html, unsafe_allow_html=True)
                         
                         last_end_time = lesson['time_idx'] + (lesson['duration'] // ((end_time.hour * 60 + end_time.minute - start_time.hour * 60 - start_time.minute) // len(schedule['time_slots'])))
                 
