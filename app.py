@@ -590,9 +590,11 @@ with tab3:
         st.markdown('<div class="info-box">👈 Generate a schedule in the Setup tab first</div>', unsafe_allow_html=True)
     else:
         schedule = st.session_state.generated_schedule
-        st.markdown('<div class="sub-header">📊 Weekly Summary & Statistics</div>', unsafe_allow_html=True)
         
-        # Calculate total hours per subject
+        # Add Summary Stats Section at top of Print tab
+        st.markdown('<div class="sub-header">📊 Weekly Summary</div>', unsafe_allow_html=True)
+        
+        # Calculate stats
         subject_hours = {}
         kid_total_hours = {kid: 0 for kid in schedule['kids']}
         
@@ -601,7 +603,6 @@ with tab3:
                 for time in schedule['time_slots']:
                     cell = schedule['grid'][day][kid][time]
                     if cell and cell['isStart']:
-                        # Find duration of this session
                         duration_blocks = 1
                         time_idx = schedule['time_slots'].index(time)
                         for i in range(time_idx + 1, len(schedule['time_slots'])):
@@ -611,7 +612,6 @@ with tab3:
                             else:
                                 break
                         
-                        # Calculate hours
                         block_minutes = (end_time.hour * 60 + end_time.minute - start_time.hour * 60 - start_time.minute) // len(schedule['time_slots'])
                         hours = (duration_blocks * block_minutes) / 60
                         
@@ -626,75 +626,15 @@ with tab3:
                         
                         kid_total_hours[kid] += hours
         
-        # Display overall stats
-        st.markdown("### 📈 Overall Statistics")
-        
+        # Display stats
         cols = st.columns(len(schedule['kids']))
         for idx, kid in enumerate(schedule['kids']):
             with cols[idx]:
-                st.metric(
-                    label=f"👤 {kid}",
-                    value=f"{kid_total_hours[kid]:.1f} hrs/week"
-                )
+                st.metric(label=f"👤 {kid}", value=f"{kid_total_hours[kid]:.1f} hrs/week")
         
         st.divider()
         
-        # Hours per subject
-        st.markdown("### 📚 Hours per Subject")
-        
-        # Create a nice table
-        subject_data = []
-        for subject, data in sorted(subject_hours.items(), key=lambda x: x[1]['total'], reverse=True):
-            row = {'Subject': subject, 'Total Hours': f"{data['total']:.1f}"}
-            for kid in schedule['kids']:
-                row[kid] = f"{data['kids'].get(kid, 0):.1f}"
-            subject_data.append(row)
-        
-        if subject_data:
-            df_subjects = pd.DataFrame(subject_data)
-            st.dataframe(df_subjects, use_container_width=True, hide_index=True)
-        
-        st.divider()
-        
-        # Balance check
-        st.markdown("### ⚖️ Balance Check")
-        
-        if len(schedule['kids']) > 1:
-            avg_hours = sum(kid_total_hours.values()) / len(kid_total_hours)
-            imbalance_found = False
-            
-            for kid, hours in kid_total_hours.items():
-                diff = hours - avg_hours
-                if abs(diff) > 2:  # More than 2 hours difference
-                    imbalance_found = True
-                    if diff > 0:
-                        st.warning(f"⚠️ {kid} has {diff:.1f} more hours than average ({avg_hours:.1f} hrs)")
-                    else:
-                        st.warning(f"⚠️ {kid} has {abs(diff):.1f} fewer hours than average ({avg_hours:.1f} hrs)")
-            
-            if not imbalance_found:
-                st.success("✅ Schedule is well-balanced across all children!")
-        else:
-            st.info("💡 Add more children to see balance comparison")
-        
-        st.divider()
-        
-        # Download stats as CSV
-        if subject_data:
-            csv_stats = df_subjects.to_csv(index=False)
-            st.download_button(
-                label="📥 Download Stats (CSV)",
-                data=csv_stats,
-                file_name="schedule_statistics.csv",
-                mime="text/csv",
-                use_container_width=True
-            )
-
-with tab4:
-    if st.session_state.generated_schedule is None:
-        st.markdown('<div class="info-box">👈 Generate a schedule in the Setup tab first</div>', unsafe_allow_html=True)
-    else:
-        schedule = st.session_state.generated_schedule
+        # Print section
         st.markdown('<div class="sub-header">🖨️ Print Individual Schedules</div>', unsafe_allow_html=True)
         
         selected_kid = st.selectbox("👤 Select child to print", schedule['kids'])
