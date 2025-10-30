@@ -2,6 +2,17 @@ import streamlit as st
 import pandas as pd
 from datetime import datetime
 import json
+from io import BytesIO
+try:
+    from reportlab.lib.pagesizes import letter
+    from reportlab.lib import colors
+    from reportlab.lib.units import inch
+    from reportlab.platypus import SimpleDocTemplate, Table, TableStyle, Paragraph, Spacer, PageBreak
+    from reportlab.lib.styles import getSampleStyleSheet, ParagraphStyle
+    from reportlab.lib.enums import TA_CENTER, TA_LEFT
+    REPORTLAB_AVAILABLE = True
+except ImportError:
+    REPORTLAB_AVAILABLE = False
 
 st.set_page_config(page_title="Homeschool Planner", layout="wide", initial_sidebar_state="collapsed")
 
@@ -113,8 +124,12 @@ if 'generated_schedule' not in st.session_state:
     st.session_state.generated_schedule = None
 if 'lesson_details' not in st.session_state:
     st.session_state.lesson_details = {}
-if 'lesson_completion' not in st.session_state:
-    st.session_state.lesson_completion = {}
+if 'scheduling_warnings' not in st.session_state:
+    st.session_state.scheduling_warnings = []
+if 'saved_schedules' not in st.session_state:
+    st.session_state.saved_schedules = {}
+if 'current_schedule_name' not in st.session_state:
+    st.session_state.current_schedule_name = ""
 if 'show_preview' not in st.session_state:
     st.session_state.show_preview = False
 
@@ -575,6 +590,111 @@ with tab3:
         st.markdown('<div class="info-box">👈 Generate a schedule in the Setup tab first</div>', unsafe_allow_html=True)
     else:
         schedule = st.session_state.generated_schedule
+        st.markdown('<div class="sub-header">📊 Weekly Summary & Statistics</div>', unsafe_allow_html=True)
+        
+        # Calculate total hours per subject
+        subject_hours = {}
+        kid_total_hours = {kid: 0 for kid in schedule['kids']}
+        
+        for day in schedule['days']:
+            for kid in schedule['kids']:
+                for time in schedule['time_slots']:
+                    cell = schedule['grid'][day][kid][time]
+                    if cell and cell['isStart']:
+                        # Find duration of this session
+                        duration_blocks = 1
+                        time_idx = schedule['time_slots'].index(time)
+                        for i in range(time_idx + 1, len(schedule['time_slots'])):
+                            next_cell = schedule['grid'][day][kid][schedule['time_slots'][i]]
+                            if next_cell and next_cell.get('subject') == cell['subject'] and not next_cell.get('isStart'):
+                                duration_blocks += 1
+                            else:
+                                break
+                        
+                        # Calculate hours
+                        block_minutes = (end_time.hour * 60 + end_time.minute - start_time.hour * 60 - start_time.minute) // len(schedule['time_slots'])
+                        hours = (duration_blocks * block_minutes) / 60
+                        
+                        subject = cell['subject']
+                        if subject not in subject_hours:
+                            subject_hours[subject] = {'total': 0, 'kids': {}}
+                        subject_hours[subject]['total'] += hours
+                        
+                        if kid not in subject_hours[subject]['kids']:
+                            subject_hours[subject]['kids'][kid] = 0
+                        subject_hours[subject]['kids'][kid] += hours
+                        
+                        kid_total_hours[kid] += hours
+        
+        # Display overall stats
+        st.markdown("### 📈 Overall Statistics")
+        
+        cols = st.columns(len(schedule['kids']))
+        for idx, kid in enumerate(schedule['kids']):
+            with cols[idx]:
+                st.metric(
+                    label=f"👤 {kid}",
+                    value=f"{kid_total_hours[kid]:.1f} hrs/week"
+                )
+        
+        st.divider()
+        
+        # Hours per subject
+        st.markdown("### 📚 Hours per Subject")
+        
+        # Create a nice table
+        subject_data = []
+        for subject, data in sorted(subject_hours.items(), key=lambda x: x[1]['total'], reverse=True):
+            row = {'Subject': subject, 'Total Hours': f"{data['total']:.1f}"}
+            for kid in schedule['kids']:
+                row[kid] = f"{data['kids'].get(kid, 0):.1f}"
+            subject_data.append(row)
+        
+        if subject_data:
+            df_subjects = pd.DataFrame(subject_data)
+            st.dataframe(df_subjects, use_container_width=True, hide_index=True)
+        
+        st.divider()
+        
+        # Balance check
+        st.markdown("### ⚖️ Balance Check")
+        
+        if len(schedule['kids']) > 1:
+            avg_hours = sum(kid_total_hours.values()) / len(kid_total_hours)
+            imbalance_found = False
+            
+            for kid, hours in kid_total_hours.items():
+                diff = hours - avg_hours
+                if abs(diff) > 2:  # More than 2 hours difference
+                    imbalance_found = True
+                    if diff > 0:
+                        st.warning(f"⚠️ {kid} has {diff:.1f} more hours than average ({avg_hours:.1f} hrs)")
+                    else:
+                        st.warning(f"⚠️ {kid} has {abs(diff):.1f} fewer hours than average ({avg_hours:.1f} hrs)")
+            
+            if not imbalance_found:
+                st.success("✅ Schedule is well-balanced across all children!")
+        else:
+            st.info("💡 Add more children to see balance comparison")
+        
+        st.divider()
+        
+        # Download stats as CSV
+        if subject_data:
+            csv_stats = df_subjects.to_csv(index=False)
+            st.download_button(
+                label="📥 Download Stats (CSV)",
+                data=csv_stats,
+                file_name="schedule_statistics.csv",
+                mime="text/csv",
+                use_container_width=True
+            )
+
+with tab4:
+    if st.session_state.generated_schedule is None:
+        st.markdown('<div class="info-box">👈 Generate a schedule in the Setup tab first</div>', unsafe_allow_html=True)
+    else:
+        schedule = st.session_state.generated_schedule
         st.markdown('<div class="sub-header">🖨️ Print Individual Schedules</div>', unsafe_allow_html=True)
         
         selected_kid = st.selectbox("👤 Select child to print", schedule['kids'])
@@ -826,3 +946,107 @@ with tab3:
             
             st.markdown("---")
             st.info("💡 Use Ctrl+P (or Cmd+P on Mac) to print this beautiful schedule!")
+            
+            # PDF Export
+            st.markdown("---")
+            st.markdown("### 📄 Export Options")
+            
+            if not REPORTLAB_AVAILABLE:
+                st.warning("⚠️ PDF export requires the reportlab library. Install with: pip install reportlab")
+            else:
+                if st.button("📥 Download as PDF", use_container_width=True, type="primary"):
+                    # Create PDF
+                    buffer = BytesIO()
+                    doc = SimpleDocTemplate(buffer, pagesize=letter)
+                    elements = []
+                    
+                    styles = getSampleStyleSheet()
+                    title_style = ParagraphStyle(
+                        'CustomTitle',
+                        parent=styles['Heading1'],
+                        fontSize=24,
+                        textColor=colors.HexColor('#667eea'),
+                        spaceAfter=30,
+                        alignment=TA_CENTER
+                    )
+                    
+                    # Title
+                    elements.append(Paragraph(f"{selected_kid}'s Schedule", title_style))
+                    elements.append(Paragraph(f"{selected_print_day if print_mode == 'Single Day' else 'Full Week'}", styles['Heading2']))
+                    elements.append(Spacer(1, 0.3*inch))
+                    
+                    for day in days_to_print:
+                        if print_mode == "Full Week":
+                            elements.append(Paragraph(day, styles['Heading2']))
+                            elements.append(Spacer(1, 0.2*inch))
+                        
+                        # Get lessons for this day
+                        lessons_with_times = []
+                        for time in schedule['time_slots']:
+                            cell = schedule['grid'][day][selected_kid][time]
+                            if cell and cell['isStart']:
+                                lesson_key = f"{day}_{selected_kid}_{time}_{cell['subject']}"
+                                details = st.session_state.lesson_details.get(lesson_key, {})
+                                
+                                duration_blocks = 1
+                                time_idx = schedule['time_slots'].index(time)
+                                for i in range(time_idx + 1, len(schedule['time_slots'])):
+                                    next_cell = schedule['grid'][day][selected_kid][schedule['time_slots'][i]]
+                                    if next_cell and next_cell.get('subject') == cell['subject'] and not next_cell.get('isStart'):
+                                        duration_blocks += 1
+                                    else:
+                                        break
+                                
+                                lessons_with_times.append({
+                                    'time': time,
+                                    'subject': f"{cell.get('emoji', '')} {cell['subject']}",
+                                    'duration': duration_blocks * ((end_time.hour * 60 + end_time.minute - start_time.hour * 60 - start_time.minute) // len(schedule['time_slots'])),
+                                    'notes': details.get('notes', ''),
+                                    'link': details.get('link', '')
+                                })
+                        
+                        if lessons_with_times:
+                            # Create table data
+                            table_data = [['Time', 'Subject', 'Duration', 'Notes', '☐']]
+                            for lesson in lessons_with_times:
+                                notes_text = lesson['notes'][:50] + "..." if len(lesson['notes']) > 50 else lesson['notes']
+                                table_data.append([
+                                    lesson['time'],
+                                    lesson['subject'],
+                                    f"{lesson['duration']} min",
+                                    notes_text,
+                                    '☐'
+                                ])
+                            
+                            # Create table
+                            t = Table(table_data, colWidths=[1*inch, 2*inch, 1*inch, 2.5*inch, 0.5*inch])
+                            t.setStyle(TableStyle([
+                                ('BACKGROUND', (0, 0), (-1, 0), colors.HexColor('#667eea')),
+                                ('TEXTCOLOR', (0, 0), (-1, 0), colors.whitesmoke),
+                                ('ALIGN', (0, 0), (-1, -1), 'LEFT'),
+                                ('FONTNAME', (0, 0), (-1, 0), 'Helvetica-Bold'),
+                                ('FONTSIZE', (0, 0), (-1, 0), 12),
+                                ('BOTTOMPADDING', (0, 0), (-1, 0), 12),
+                                ('BACKGROUND', (0, 1), (-1, -1), colors.beige),
+                                ('GRID', (0, 0), (-1, -1), 1, colors.black)
+                            ]))
+                            elements.append(t)
+                        else:
+                            elements.append(Paragraph("No lessons scheduled", styles['Normal']))
+                        
+                        if print_mode == "Full Week" and day != days_to_print[-1]:
+                            elements.append(PageBreak())
+                        else:
+                            elements.append(Spacer(1, 0.3*inch))
+                    
+                    # Build PDF
+                    doc.build(elements)
+                    buffer.seek(0)
+                    
+                    st.download_button(
+                        label="💾 Save PDF File",
+                        data=buffer,
+                        file_name=f"{selected_kid}_{selected_print_day if print_mode == 'Single Day' else 'Full_Week'}_schedule.pdf",
+                        mime="application/pdf",
+                        use_container_width=True
+                    )
