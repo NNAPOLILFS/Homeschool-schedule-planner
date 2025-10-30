@@ -429,7 +429,7 @@ with tab2:
         st.markdown('<div class="info-box">👈 Generate a schedule in the Setup tab first</div>', unsafe_allow_html=True)
     else:
         schedule = st.session_state.generated_schedule
-        st.markdown('<div class="sub-header">📆 Your Weekly Schedule</div>', unsafe_allow_html=True)
+        st.markdown('<div class="sub-header">📆 Calendar View</div>', unsafe_allow_html=True)
         st.write("Click on any lesson to add details, resources, and track completion")
         
         # Day selector
@@ -437,29 +437,83 @@ with tab2:
         
         st.markdown(f"### {selected_day}")
         
-        # Create columns for each kid
-        kid_columns = st.columns(len(schedule['kids']))
+        # Create traditional grid calendar
+        # Build a table structure
+        st.markdown("""
+        <style>
+        .calendar-grid {
+            display: grid;
+            grid-template-columns: 80px repeat(auto-fit, minmax(200px, 1fr));
+            gap: 1px;
+            background: #e0e0e0;
+            border: 1px solid #e0e0e0;
+        }
+        .calendar-header {
+            background: #667eea;
+            color: white;
+            padding: 15px;
+            font-weight: 600;
+            text-align: center;
+        }
+        .time-cell {
+            background: #f5f5f5;
+            padding: 10px;
+            font-weight: 600;
+            color: #555;
+            text-align: center;
+        }
+        .lesson-cell {
+            background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+            color: white;
+            padding: 15px;
+            min-height: 60px;
+        }
+        .lesson-cell-shared {
+            background: linear-gradient(135deg, #48BB78 0%, #38A169 100%);
+        }
+        .lesson-cell-commitment {
+            background: linear-gradient(135deg, #F56565 0%, #C53030 100%);
+        }
+        .empty-cell {
+            background: white;
+            padding: 15px;
+            min-height: 60px;
+        }
+        .lesson-emoji {
+            font-size: 1.2rem;
+            margin-right: 5px;
+        }
+        </style>
+        """, unsafe_allow_html=True)
         
-        for kid_idx, kid in enumerate(schedule['kids']):
-            with kid_columns[kid_idx]:
-                st.markdown(f"**👤 {kid}**")
+        # Create calendar header row
+        cols = st.columns([1] + [3] * len(schedule['kids']))
+        cols[0].markdown("**Time**")
+        for idx, kid in enumerate(schedule['kids']):
+            cols[idx + 1].markdown(f"**👤 {kid}**")
+        
+        # Create time slot rows
+        for time in schedule['time_slots']:
+            cols = st.columns([1] + [3] * len(schedule['kids']))
+            cols[0].markdown(f"**{time}**")
+            
+            for kid_idx, kid in enumerate(schedule['kids']):
+                cell = schedule['grid'][selected_day][kid][time]
                 
-                for time in schedule['time_slots']:
-                    cell = schedule['grid'][selected_day][kid][time]
-                    
+                with cols[kid_idx + 1]:
                     if cell and cell['isStart']:
                         lesson_key = f"{selected_day}_{kid}_{time}_{cell['subject']}"
                         emoji = cell.get('emoji', '📚')
                         
-                        # Determine cell style
+                        # Determine background color
                         if cell.get('fixed'):
-                            cell_class = "commitment-cell"
+                            bg_color = "#F56565"
                         elif cell.get('shared'):
-                            cell_class = "shared-cell"
+                            bg_color = "#48BB78"
                         else:
-                            cell_class = "schedule-cell"
+                            bg_color = "#667eea"
                         
-                        with st.expander(f"{emoji} {cell['subject']} - {time}"):
+                        with st.expander(f"{emoji} {cell['subject']}", expanded=False):
                             details = st.session_state.lesson_details.get(lesson_key, {'notes': '', 'link': ''})
                             
                             notes = st.text_area("📝 Lesson Notes", value=details.get('notes', ''), 
@@ -494,7 +548,9 @@ with tab2:
                                     st.markdown(f"🔗 [Open Resource]({details['link']})")
                     
                     elif cell and not cell['isStart']:
-                        st.write("⬇️")
+                        st.markdown('<div style="text-align: center; color: #999;">⬇️</div>', unsafe_allow_html=True)
+                    else:
+                        st.markdown('<div style="min-height: 20px;"></div>', unsafe_allow_html=True)
         
         st.markdown("---")
         
@@ -533,37 +589,227 @@ with tab3:
         st.markdown('<div class="sub-header">🖨️ Print Individual Schedules</div>', unsafe_allow_html=True)
         
         selected_kid = st.selectbox("👤 Select child to print", schedule['kids'])
+        selected_print_day = st.selectbox("📅 Select day to print", schedule['days'], key="print_day_selector")
         
         if st.button("📄 Generate Print View", use_container_width=True):
-            st.markdown(f"## 📋 {selected_kid}'s Weekly Schedule")
+            # Card-based planner style
+            st.markdown(f"""
+            <style>
+            .print-container {{
+                max-width: 800px;
+                margin: 0 auto;
+                background: white;
+                padding: 40px;
+                border-radius: 15px;
+            }}
+            .print-header {{
+                text-align: center;
+                margin-bottom: 30px;
+                padding-bottom: 20px;
+                border-bottom: 3px solid #667eea;
+            }}
+            .print-header h1 {{
+                color: #2c3e50;
+                margin-bottom: 10px;
+            }}
+            .print-header h2 {{
+                color: #667eea;
+                font-weight: normal;
+            }}
+            .timeline {{
+                position: relative;
+                padding-left: 50px;
+            }}
+            .timeline::before {{
+                content: '';
+                position: absolute;
+                left: 20px;
+                top: 0;
+                bottom: 0;
+                width: 3px;
+                background: #e0e0e0;
+            }}
+            .time-block {{
+                position: relative;
+                margin-bottom: 25px;
+            }}
+            .time-dot {{
+                position: absolute;
+                left: -38px;
+                top: 8px;
+                width: 14px;
+                height: 14px;
+                border-radius: 50%;
+                background: #667eea;
+                border: 3px solid white;
+                box-shadow: 0 0 0 2px #667eea;
+            }}
+            .time-label {{
+                font-size: 0.9rem;
+                color: #7f8c8d;
+                font-weight: 600;
+                margin-bottom: 8px;
+            }}
+            .lesson-card {{
+                background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+                padding: 20px;
+                border-radius: 12px;
+                color: white;
+                box-shadow: 0 4px 15px rgba(102, 126, 234, 0.3);
+            }}
+            .lesson-card.shared {{
+                background: linear-gradient(135deg, #48BB78 0%, #38A169 100%);
+                box-shadow: 0 4px 15px rgba(72, 187, 120, 0.3);
+            }}
+            .lesson-card.commitment {{
+                background: linear-gradient(135deg, #F56565 0%, #C53030 100%);
+                box-shadow: 0 4px 15px rgba(245, 101, 101, 0.3);
+            }}
+            .lesson-header {{
+                display: flex;
+                align-items: center;
+                justify-content: space-between;
+                margin-bottom: 10px;
+            }}
+            .lesson-title {{
+                font-size: 1.3rem;
+                font-weight: 600;
+                display: flex;
+                align-items: center;
+                gap: 10px;
+            }}
+            .lesson-emoji {{
+                font-size: 1.8rem;
+            }}
+            .lesson-duration {{
+                font-size: 0.9rem;
+                opacity: 0.9;
+            }}
+            .lesson-details {{
+                font-size: 0.95rem;
+                opacity: 0.95;
+                margin-top: 10px;
+                padding-top: 10px;
+                border-top: 1px solid rgba(255,255,255,0.3);
+                line-height: 1.6;
+            }}
+            .checkbox {{
+                font-size: 1.5rem;
+                float: right;
+            }}
+            .break-block {{
+                padding: 15px 0;
+                margin-bottom: 20px;
+                color: #95a5a6;
+                font-style: italic;
+                font-size: 0.95rem;
+                text-align: center;
+            }}
+            .no-lessons {{
+                text-align: center;
+                padding: 60px 20px;
+                color: #95a5a6;
+                font-style: italic;
+                font-size: 1.1rem;
+            }}
+            @media print {{
+                .print-container {{
+                    box-shadow: none;
+                    border-radius: 0;
+                }}
+            }}
+            </style>
+            """, unsafe_allow_html=True)
             
-            for day in schedule['days']:
-                st.markdown(f"### {day}")
-                
-                has_lessons = False
-                for time in schedule['time_slots']:
-                    cell = schedule['grid'][day][selected_kid][time]
-                    if cell and cell['isStart']:
-                        has_lessons = True
-                        lesson_key = f"{day}_{selected_kid}_{time}_{cell['subject']}"
-                        details = st.session_state.lesson_details.get(lesson_key, {})
-                        emoji = cell.get('emoji', '📚')
-                        
-                        col1, col2, col3 = st.columns([1, 4, 1])
-                        with col1:
-                            st.markdown(f"**{time}**")
-                        with col2:
-                            st.markdown(f"**{emoji} {cell['subject']}**")
-                            if details.get('notes'):
-                                st.write(f"_{details['notes']}_")
-                            if details.get('link'):
-                                st.write(f"🔗 [Resource Link]({details['link']})")
-                        with col3:
-                            st.markdown("☐")
-                
-                if not has_lessons:
-                    st.write("_No lessons scheduled_")
-                
-                st.markdown("---")
+            st.markdown(f"""
+            <div class="print-container">
+                <div class="print-header">
+                    <h1>📋 {selected_kid}'s Schedule</h1>
+                    <h2>{selected_print_day}</h2>
+                </div>
+                <div class="timeline">
+            """, unsafe_allow_html=True)
             
-            st.info("💡 Use Ctrl+P (or Cmd+P on Mac) to print this page")
+            # Get all lessons for this day/kid
+            lessons_with_times = []
+            for time in schedule['time_slots']:
+                cell = schedule['grid'][selected_print_day][selected_kid][time]
+                if cell and cell['isStart']:
+                    lesson_key = f"{selected_print_day}_{selected_kid}_{time}_{cell['subject']}"
+                    details = st.session_state.lesson_details.get(lesson_key, {})
+                    
+                    # Calculate duration in minutes
+                    duration_blocks = 1
+                    time_idx = schedule['time_slots'].index(time)
+                    for i in range(time_idx + 1, len(schedule['time_slots'])):
+                        next_cell = schedule['grid'][selected_print_day][selected_kid][schedule['time_slots'][i]]
+                        if next_cell and next_cell.get('subject') == cell['subject'] and not next_cell.get('isStart'):
+                            duration_blocks += 1
+                        else:
+                            break
+                    
+                    lessons_with_times.append({
+                        'time': time,
+                        'time_idx': time_idx,
+                        'cell': cell,
+                        'details': details,
+                        'duration': duration_blocks * (end_time.hour * 60 + end_time.minute - start_time.hour * 60 - start_time.minute) // len(schedule['time_slots'])
+                    })
+            
+            if not lessons_with_times:
+                st.markdown('<div class="no-lessons">No lessons scheduled for this day</div>', unsafe_allow_html=True)
+            else:
+                last_end_time = None
+                
+                for lesson in lessons_with_times:
+                    # Check for break
+                    if last_end_time is not None:
+                        current_start_idx = lesson['time_idx']
+                        if current_start_idx > last_end_time:
+                            break_minutes = (current_start_idx - last_end_time) * (end_time.hour * 60 + end_time.minute - start_time.hour * 60 - start_time.minute) // len(schedule['time_slots'])
+                            st.markdown(f'<div class="break-block">☕ Break ({break_minutes} min)</div>', unsafe_allow_html=True)
+                    
+                    # Determine card class
+                    card_class = ""
+                    if lesson['cell'].get('fixed'):
+                        card_class = "commitment"
+                    elif lesson['cell'].get('shared'):
+                        card_class = "shared"
+                    
+                    emoji = lesson['cell'].get('emoji', '📚')
+                    subject = lesson['cell']['subject']
+                    
+                    details_html = ""
+                    if lesson['details'].get('notes'):
+                        details_html += f"<div>📝 {lesson['details']['notes']}</div>"
+                    if lesson['details'].get('link'):
+                        link_display = lesson['details']['link'][:50] + "..." if len(lesson['details']['link']) > 50 else lesson['details']['link']
+                        details_html += f"<div>🔗 {link_display}</div>"
+                    
+                    if details_html:
+                        details_html = f'<div class="lesson-details">{details_html}</div>'
+                    
+                    st.markdown(f"""
+                    <div class="time-block">
+                        <div class="time-dot"></div>
+                        <div class="time-label">{lesson['time']}</div>
+                        <div class="lesson-card {card_class}">
+                            <div class="lesson-header">
+                                <div class="lesson-title">
+                                    <span class="lesson-emoji">{emoji}</span>
+                                    <span>{subject}</span>
+                                </div>
+                                <div class="lesson-duration">{lesson['duration']} min</div>
+                            </div>
+                            {details_html}
+                            <div class="checkbox">☐</div>
+                        </div>
+                    </div>
+                    """, unsafe_allow_html=True)
+                    
+                    last_end_time = lesson['time_idx'] + (lesson['duration'] // ((end_time.hour * 60 + end_time.minute - start_time.hour * 60 - start_time.minute) // len(schedule['time_slots'])))
+            
+            st.markdown('</div></div>', unsafe_allow_html=True)
+            
+            st.markdown("---")
+            st.info("💡 Use Ctrl+P (or Cmd+P on Mac) to print this beautiful schedule!")
