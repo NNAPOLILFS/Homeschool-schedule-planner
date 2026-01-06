@@ -1,237 +1,178 @@
 import streamlit as st
-import pandas as pd
 from datetime import datetime, time
+import pandas as pd
 
-st.set_page_config(page_title="Homeschool Wizard Planner", layout="wide", initial_sidebar_state="collapsed")
+st.set_page_config(page_title="Homeschool Planner", layout="wide")
 
-# ---------------- Custom CSS ----------------
-st.markdown("""
-<style>
-.main-header { font-size: 2.5rem; font-weight: bold; color: #4A90E2; text-align: center; margin-bottom: 1rem; }
-.sub-header { font-size: 1.3rem; font-weight: 600; color: #2C3E50; margin-top: 1rem; margin-bottom: 0.5rem; }
-.schedule-cell { padding: 10px; border-radius: 10px; margin: 3px 0; color: white; font-weight: 500; text-align:center; }
-.schedule-math { background: #667eea; }
-.schedule-reading { background: #38b2ac; }
-.schedule-writing { background: #f6ad55; }
-.schedule-science { background: #68d391; }
-.schedule-other { background: #a0aec0; }
-.stButton>button { border-radius: 10px; font-weight: 600; }
-</style>
-""", unsafe_allow_html=True)
-
-# ---------------- Session State ----------------
-if "wizard_step" not in st.session_state:
-    st.session_state.wizard_step = 0
-if "kids" not in st.session_state:
-    st.session_state.kids = [""]  # Default 1 child
-if "subjects" not in st.session_state:
-    # Predefined subjects
-    st.session_state.subjects = [
-        {"name":"Math","sessions":3,"duration":60,"kids":[],"emoji":"🔢"},
-        {"name":"Reading","sessions":3,"duration":45,"kids":[],"emoji":"📖"},
-        {"name":"Writing","sessions":2,"duration":45,"kids":[],"emoji":"✍️"},
-        {"name":"Science","sessions":2,"duration":60,"kids":[],"emoji":"🔬"},
-    ]
-if "commitments" not in st.session_state:
+# ------------------- SESSION STATE INIT -------------------
+if 'wizard_step' not in st.session_state:
+    st.session_state.wizard_step = 'kids'  # kids -> subjects -> commitments
+if 'kids' not in st.session_state:
+    st.session_state.kids = []
+if 'subjects' not in st.session_state:
+    st.session_state.subjects = []
+if 'commitments' not in st.session_state:
     st.session_state.commitments = []
-if "schedule" not in st.session_state:
-    st.session_state.schedule = None
-if "pressure" not in st.session_state:
-    st.session_state.pressure = "Standard"
-if "start_time" not in st.session_state:
-    st.session_state.start_time = time(8,0)
-if "end_time" not in st.session_state:
-    st.session_state.end_time = time(15,0)
-if "block_size" not in st.session_state:
-    st.session_state.block_size = 30
+if 'generated_schedule' not in st.session_state:
+    st.session_state.generated_schedule = None
 
-# ---------------- Wizard Navigation ----------------
-def next_step():
-    st.session_state.wizard_step += 1
-def prev_step():
-    st.session_state.wizard_step -= 1
+# ------------------- DEFAULT EMOJI -------------------
+DEFAULT_EMOJI = {
+    'math': '🔢', 'reading': '📖', 'writing': '✍️', 'science': '🔬',
+    'history': '📜', 'geography': '🌍', 'art': '🎨', 'music': '🎵',
+    'pe': '⚽', 'spanish': '🇪🇸', 'french': '🇫🇷', 'language': '💬',
+    'bible': '✝️', 'nature': '🌿', 'coding': '💻', 'default': '📚'
+}
 
-st.markdown('<div class="main-header">🏫 Homeschool Wizard Planner</div>', unsafe_allow_html=True)
+def get_emoji_for_subject(name):
+    name_lower = name.lower()
+    for key in DEFAULT_EMOJI:
+        if key in name_lower:
+            return DEFAULT_EMOJI[key]
+    return DEFAULT_EMOJI['default']
 
-# ---------------- Step 0: Welcome ----------------
-if st.session_state.wizard_step == 0:
-    st.write("Welcome! Let’s create a beautiful homeschool schedule in a few easy steps. Press Next to begin.")
-    if st.button("➡️ Start Setup"):
-        next_step()
+# ------------------- SIDEBAR SETTINGS -------------------
+st.sidebar.header("⚙️ Schedule Settings")
+start_time = st.sidebar.time_input("Start Time", value=time(8,0))
+end_time = st.sidebar.time_input("End Time", value=time(15,0))
+block_size = st.sidebar.selectbox("Block Size", [15,30,60], index=1)
+include_weekend = st.sidebar.checkbox("Include Weekend", value=False)
+pressure = st.sidebar.radio("Rhythm Pressure", ["Gentle", "Moderate", "Ambitious"], index=1)
 
-# ---------------- Step 1: Children ----------------
-if st.session_state.wizard_step == 1:
-    st.markdown('<div class="sub-header">👨‍👩‍👧‍👦 Children</div>', unsafe_allow_html=True)
+# ------------------- WIZARD -------------------
+st.title("🏫 Homeschool Planner")
+
+def wizard_nav(next_step):
+    st.session_state.wizard_step = next_step
+    st.experimental_rerun()
+
+if st.session_state.wizard_step == 'kids':
+    st.header("👨‍👩‍👧‍👦 Add Your Children")
     for i, kid in enumerate(st.session_state.kids):
-        col1, col2 = st.columns([4,1])
+        col1, col2 = st.columns([3,1])
         with col1:
             st.session_state.kids[i] = st.text_input(f"Child {i+1}", value=kid, key=f"kid_{i}")
         with col2:
-            if st.button("🗑️", key=f"rm_kid_{i}") and len(st.session_state.kids)>1:
+            if st.button("🗑️", key=f"rm_kid_{i}") and len(st.session_state.kids)>0:
                 st.session_state.kids.pop(i)
                 st.experimental_rerun()
     if st.button("➕ Add Child"):
         st.session_state.kids.append("")
-    col1, col2 = st.columns(2)
-    with col1:
-        if st.button("⬅️ Back"):
-            prev_step()
-    with col2:
-        if st.button("➡️ Next"):
-            if any(k.strip() for k in st.session_state.kids):
-                next_step()
-            else:
-                st.error("Please enter at least one child.")
+    if st.session_state.kids:
+        st.button("➡️ Next: Subjects", on_click=wizard_nav, args=('subjects',))
 
-# ---------------- Step 2: Subjects ----------------
-if st.session_state.wizard_step == 2:
-    st.markdown('<div class="sub-header">📚 Subjects</div>', unsafe_allow_html=True)
+elif st.session_state.wizard_step == 'subjects':
+    st.header("📚 Add Subjects")
+    predefined_subjects = ['Math', 'Reading', 'Writing', 'Science', 'History', 'Art', 'Music', 'PE']
+    
     for i, subj in enumerate(st.session_state.subjects):
-        st.write(f"**{subj['emoji']} {subj['name']}**")
-        col1, col2, col3, col4 = st.columns([3,1,1,3])
+        st.subheader(f"Subject {i+1}")
+        col1, col2 = st.columns([3,1])
         with col1:
-            st.session_state.subjects[i]['name'] = st.text_input("Subject Name", subj['name'], key=f"subj_name_{i}")
+            name = st.selectbox("Select or type subject", predefined_subjects + [subj.get('name','')], index=predefined_subjects.index(subj['name']) if subj.get('name') in predefined_subjects else 0, key=f"subj_name_{i}")
+            st.session_state.subjects[i]['name'] = name
+            st.session_state.subjects[i]['emoji'] = get_emoji_for_subject(name)
         with col2:
-            st.session_state.subjects[i]['emoji'] = st.text_input("Emoji", subj['emoji'], key=f"subj_emoji_{i}", max_chars=2)
-        with col3:
-            st.session_state.subjects[i]['sessions'] = st.number_input("Sessions/week", min_value=1, value=subj['sessions'], key=f"subj_sessions_{i}")
-        with col4:
-            st.session_state.subjects[i]['duration'] = st.number_input("Duration (min)", min_value=15, step=15, value=subj['duration'], key=f"subj_dur_{i}")
-        st.write("Select children for this subject:")
-        kid_cols = st.columns(min(len(st.session_state.kids),5))
-        selected_kids = []
-        for idx, kid in enumerate(st.session_state.kids):
-            with kid_cols[idx % len(kid_cols)]:
-                if st.checkbox(kid, key=f"subj_{i}_kid_{kid}", value=kid in subj['kids']):
-                    selected_kids.append(kid)
-        st.session_state.subjects[i]['kids'] = selected_kids
+            if st.button("🗑️", key=f"rm_subj_{i}"):
+                st.session_state.subjects.pop(i)
+                st.experimental_rerun()
+        st.number_input("Sessions per week", min_value=1, value=subj.get('sessions',3), key=f"sess_{i}", help="How many times per week this subject occurs")
+        st.number_input("Duration (min)", min_value=15, step=15, value=subj.get('duration',60), key=f"dur_{i}", help="Duration of each session")
+        st.multiselect("Children", options=st.session_state.kids, default=subj.get('kids',[]), key=f"kids_{i}", help="Select children taking this subject")
         st.markdown("---")
-    if st.button("➕ Add Custom Subject"):
-        st.session_state.subjects.append({"name":"New Subject","sessions":1,"duration":30,"kids":[],"emoji":"📚"})
-    col1, col2 = st.columns(2)
-    with col1:
-        if st.button("⬅️ Back"):
-            prev_step()
-    with col2:
-        if st.button("➡️ Next"):
-            next_step()
+    if st.button("➕ Add Subject"):
+        st.session_state.subjects.append({'name':'', 'sessions':3, 'duration':60, 'kids':[]})
+    if st.session_state.subjects:
+        st.button("➡️ Next: Commitments", on_click=wizard_nav, args=('commitments',))
+        st.button("⬅️ Back", on_click=wizard_nav, args=('kids',))
 
-# ---------------- Step 3: Commitments ----------------
-if st.session_state.wizard_step == 3:
-    st.markdown('<div class="sub-header">📅 Commitments (Optional)</div>', unsafe_allow_html=True)
-    for i, c in enumerate(st.session_state.commitments):
-        col1, col2, col3, col4, col5 = st.columns([2,2,1,2,3])
+elif st.session_state.wizard_step == 'commitments':
+    st.header("📅 Add Fixed Commitments")
+    for i, comm in enumerate(st.session_state.commitments):
+        st.subheader(f"Commitment {i+1}")
+        col1, col2 = st.columns([3,1])
         with col1:
-            c['day'] = st.selectbox("Day", ["Monday","Tuesday","Wednesday","Thursday","Friday"], index=["Monday","Tuesday","Wednesday","Thursday","Friday"].index(c.get('day','Monday')), key=f"comm_day_{i}")
+            comm['activity'] = st.text_input("Activity Name", value=comm.get('activity',''), key=f"comm_name_{i}")
         with col2:
-            c['time'] = st.time_input("Time", value=c.get('time',time(14,0)), key=f"comm_time_{i}")
-        with col3:
-            c['duration'] = st.number_input("Duration", min_value=15, step=15, value=c.get('duration',60), key=f"comm_dur_{i}")
-        with col4:
-            c['activity'] = st.text_input("Activity", c.get('activity',''), key=f"comm_act_{i}")
-        with col5:
-            st.write("Children:")
-            kid_cols = st.columns(min(len(st.session_state.kids),5))
-            selected_kids=[]
-            for idx, kid in enumerate(st.session_state.kids):
-                with kid_cols[idx % len(kid_cols)]:
-                    if st.checkbox(kid, key=f"comm_{i}_kid_{kid}", value=kid in c.get('kids',[])):
-                        selected_kids.append(kid)
-            c['kids'] = selected_kids
+            if st.button("🗑️", key=f"rm_comm_{i}"):
+                st.session_state.commitments.pop(i)
+                st.experimental_rerun()
+        comm['day'] = st.selectbox("Day", ["Monday","Tuesday","Wednesday","Thursday","Friday","Saturday","Sunday"], index=0 if comm.get('day') not in ["Monday","Tuesday","Wednesday","Thursday","Friday","Saturday","Sunday"] else ["Monday","Tuesday","Wednesday","Thursday","Friday","Saturday","Sunday"].index(comm['day']), key=f"comm_day_{i}")
+        comm['time'] = st.time_input("Time", value=comm.get('time',time(14,0)), key=f"comm_time_{i}")
+        comm['duration'] = st.number_input("Duration (min)", min_value=15, step=15, value=comm.get('duration',60), key=f"comm_dur_{i}")
+        comm['kids'] = st.multiselect("Children", options=st.session_state.kids, default=comm.get('kids',[]), key=f"comm_kids_{i}")
+        st.markdown("---")
     if st.button("➕ Add Commitment"):
-        st.session_state.commitments.append({'day':'Monday','time':time(14,0),'duration':60,'activity':'','kids':[]})
-    col1, col2 = st.columns(2)
-    with col1:
-        if st.button("⬅️ Back"):
-            prev_step()
-    with col2:
-        if st.button("➡️ Next"):
-            next_step()
+        st.session_state.commitments.append({'activity':'','day':'Monday','time':time(14,0),'duration':60,'kids':[]})
+    st.button("⬅️ Back", on_click=wizard_nav, args=('subjects',))
+    if st.button("🎯 Generate Schedule"):
+        st.session_state.wizard_step = 'done'
+        st.experimental_rerun()
 
-# ---------------- Step 4: Schedule Settings ----------------
-if st.session_state.wizard_step == 4:
-    st.markdown('<div class="sub-header">⚙️ Schedule Settings</div>', unsafe_allow_html=True)
-    col1, col2, col3, col4 = st.columns(4)
-    with col1:
-        st.session_state.start_time = st.time_input("Start Time", st.session_state.start_time)
-    with col2:
-        st.session_state.end_time = st.time_input("End Time", st.session_state.end_time)
-    with col3:
-        st.session_state.block_size = st.selectbox("Block Size (min)", [15,30,60], index=[15,30,60].index(st.session_state.block_size))
-    with col4:
-        st.session_state.pressure = st.selectbox("Schedule Pressure", ["Gentle","Standard","Ambitious"], index=["Gentle","Standard","Ambitious"].index(st.session_state.pressure))
-    col1, col2 = st.columns(2)
-    with col1:
-        if st.button("⬅️ Back"):
-            prev_step()
-    with col2:
-        if st.button("➡️ Generate Schedule"):
-            next_step()
-
-# ---------------- Step 5: Generate Schedule ----------------
-def generate_schedule():
-    start_minutes = st.session_state.start_time.hour*60+st.session_state.start_time.minute
-    end_minutes = st.session_state.end_time.hour*60+st.session_state.end_time.minute
-    slots = list(range(start_minutes, end_minutes, st.session_state.block_size))
+# ------------------- SCHEDULE GENERATION -------------------
+def generate_schedule(kids, subjects, commitments, start_time, end_time, block_size, include_weekend):
     days = ["Monday","Tuesday","Wednesday","Thursday","Friday"]
-    grid = {day:{kid:{s:None for s in slots} for kid in st.session_state.kids} for day in days}
+    if include_weekend:
+        days += ["Saturday","Sunday"]
+    time_slots = pd.date_range(start=datetime.combine(datetime.today(), start_time), end=datetime.combine(datetime.today(), end_time), freq=f"{block_size}min").time
+    grid = {day:{kid:{t:None for t in time_slots} for kid in kids} for day in days}
 
-    # Place commitments
-    for c in st.session_state.commitments:
-        kids = c['kids'] if c['kids'] else st.session_state.kids
-        blocks = max(1, c['duration']//st.session_state.block_size)
-        time_block = c['time'].hour*60+c['time'].minute
-        for b in range(blocks):
-            for kid in kids:
-                if time_block+b*st.session_state.block_size in grid[c['day']][kid]:
-                    grid[c['day']][kid][time_block+b*st.session_state.block_size] = {"subject":c['activity'],"fixed":True}
-    # Place subjects
-    for subj in st.session_state.subjects:
-        kids = subj['kids'] if subj['kids'] else st.session_state.kids
-        blocks = max(1, subj['duration']//st.session_state.block_size)
-        # Determine number of sessions based on pressure
-        if st.session_state.pressure=="Gentle":
-            sessions = max(1, subj['sessions']-1)
-        elif st.session_state.pressure=="Ambitious":
-            sessions = subj['sessions']+1
-        else:
-            sessions = subj['sessions']
-        day_idx=0
-        for _ in range(sessions):
-            while day_idx<len(days):
-                day=days[day_idx]
-                for i in range(len(slots)-blocks+1):
-                    available = all(grid[day][kid][slots[i]+b*st.session_state.block_size] is None for kid in kids for b in range(blocks))
-                    if available:
-                        for kid in kids:
-                            for b in range(blocks):
-                                grid[day][kid][slots[i]+b*st.session_state.block_size]={"subject":subj['name'],"shared":len(kids)>1}
-                        day_idx+=1
+    # Fill commitments
+    for c in commitments:
+        slots_needed = int(c['duration']/block_size)
+        try:
+            start_idx = list(time_slots).index(c['time'])
+        except ValueError:
+            continue
+        for kid in c['kids'] if c['kids'] else kids:
+            for b in range(slots_needed):
+                if start_idx+b < len(time_slots):
+                    grid[c['day']][kid][time_slots[start_idx+b]] = {'subject':c['activity'],'fixed':True,'isStart':b==0,'emoji':'📅'}
+
+    # Fill subjects
+    for s in subjects:
+        slots_needed = int(s['duration']/block_size)
+        sessions = s['sessions']
+        subj_kids = s['kids'] if s['kids'] else kids
+        day_idx = 0
+        scheduled = 0
+        while scheduled < sessions:
+            day = days[day_idx%len(days)]
+            for i in range(len(time_slots)-slots_needed+1):
+                conflict = False
+                for kid in subj_kids:
+                    for b in range(slots_needed):
+                        if grid[day][kid][time_slots[i+b]] is not None:
+                            conflict = True
+                            break
+                    if conflict:
                         break
-                day_idx+=1
-    return {"grid":grid,"slots":slots,"days":days,"kids":st.session_state.kids}
+                if not conflict:
+                    for kid in subj_kids:
+                        for b in range(slots_needed):
+                            grid[day][kid][time_slots[i+b]] = {'subject':s['name'],'shared':len(subj_kids)>1,'isStart':b==0,'emoji':s['emoji']}
+                    scheduled += 1
+                    break
+            day_idx += 1
 
-if st.session_state.wizard_step == 5:
-    st.session_state.schedule = generate_schedule()
-    st.markdown('<div class="sub-header">📆 Weekly Schedule</div>', unsafe_allow_html=True)
-    schedule = st.session_state.schedule
+    return {'grid':grid,'days':days,'time_slots':time_slots,'kids':kids}
+
+# ------------------- SCHEDULE VIEW -------------------
+if st.session_state.wizard_step == 'done':
+    st.header("📅 Weekly Schedule")
+    schedule = generate_schedule(st.session_state.kids, st.session_state.subjects, st.session_state.commitments, start_time, end_time, block_size, include_weekend)
     for day in schedule['days']:
-        st.markdown(f"### {day}")
-        for kid in schedule['kids']:
-            st.markdown(f"**{kid}**")
-            row=[]
-            for s in schedule['slots']:
-                cell = schedule['grid'][day][kid][s]
+        st.subheader(day)
+        df_data = []
+        for t in schedule['time_slots']:
+            row = {'Time': t.strftime("%H:%M")}
+            for kid in schedule['kids']:
+                cell = schedule['grid'][day][kid][t]
                 if cell:
-                    subj = cell['subject']
-                    cls="schedule-other"
-                    if subj.lower()=="math": cls="schedule-math"
-                    elif subj.lower()=="reading": cls="schedule-reading"
-                    elif subj.lower()=="writing": cls="schedule-writing"
-                    elif subj.lower()=="science": cls="schedule-science"
-                    row.append(f"<div class='schedule-cell {cls}'>{subj}</div>")
+                    emoji = cell.get('emoji','📚')
+                    row[kid] = f"{emoji} {cell['subject']}" if cell['isStart'] else "↓"
                 else:
-                    row.append("<div class='schedule-cell schedule-other' style='background:#e2e8f0'> </div>")
-            st.markdown("".join(row), unsafe_allow_html=True)
-    if st.button("⬅️ Back to Settings"):
-        st.session_state.wizard_step=4
+                    row[kid] = ""
+            df_data.append(row)
+        df = pd.DataFrame(df_data)
+        st.dataframe(df, use_container_width=True)
